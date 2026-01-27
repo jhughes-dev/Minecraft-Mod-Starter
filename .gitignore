@@ -18,6 +18,7 @@ bin/
 
 # IDE - VSCode
 .vscode/
+.claude/
 
 # macOS
 .DS_Store
