@@ -1,0 +1,30 @@
+{
+    "schemaVersion": 1,
+    "id": "modid",
+    "version": "${version}",
+    "name": "Mod Name",
+    "description": "A Fabric mod for Minecraft.",
+    "authors": [
+        "Your Name"
+    ],
+    "contact": {
+        "homepage": "https://github.com/yourname/modid",
+        "sources": "https://github.com/yourname/modid"
+    },
+    "license": "MIT",
+    "icon": "assets/modid/icon.png",
+    "environment": "*",
+    "entrypoints": {
+        "main": [
+            "io.github.yourname.modid.ExampleMod"
+        ]
+    },
+    "depends": {
+        "fabricloader": ">=0.16.0",
+        "minecraft": "~1.21.4",
+        "java": ">=21"
+    },
+    "suggests": {
+        "fabric-api": "*"
+    }
+}

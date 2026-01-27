@@ -1,0 +1,7 @@
+Replace this file with your mod icon.
+
+Requirements:
+- File name: icon.png
+- Format: PNG
+- Size: 128x128 pixels (recommended)
+- Delete this .txt file after adding your icon
