@@ -6,11 +6,13 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FORCE=false
+MC_VERSION_OVERRIDE=""
 
 # Parse flags
 while [[ "$1" == -* ]]; do
     case "$1" in
         -f|--force) FORCE=true; shift ;;
+        --mc-version) MC_VERSION_OVERRIDE="$2"; shift 2 ;;
         *) shift ;;
     esac
 done
@@ -47,6 +49,85 @@ to_pascal_case() {
     echo "$1" | sed -r 's/(^|_)([a-z])/\U\2/g'
 }
 
+# --- Version Auto-Detection ---
+
+fetch_latest_mc_version() {
+    echo -e "${GRAY}  Querying latest stable Minecraft version...${NC}" >&2
+    local result
+    result=$(curl -sf --max-time 10 "https://meta.fabricmc.net/v2/versions/game" 2>/dev/null) || return 1
+    # Use python3 to parse JSON (widely available)
+    echo "$result" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for v in data:
+    if v.get('stable'):
+        print(v['version'])
+        break
+" 2>/dev/null
+}
+
+fetch_latest_loader_version() {
+    echo -e "${GRAY}  Querying latest stable Fabric Loader version...${NC}" >&2
+    local result
+    result=$(curl -sf --max-time 10 "https://meta.fabricmc.net/v2/versions/loader" 2>/dev/null) || return 1
+    echo "$result" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for v in data:
+    if v.get('stable'):
+        print(v['version'])
+        break
+" 2>/dev/null
+}
+
+fetch_latest_loom_version() {
+    echo -e "${GRAY}  Querying latest Fabric Loom version...${NC}" >&2
+    local xml
+    xml=$(curl -sf --max-time 10 "https://maven.fabricmc.net/net/fabricmc/fabric-loom/maven-metadata.xml" 2>/dev/null) || return 1
+    echo "$xml" | python3 -c "
+import sys, xml.etree.ElementTree as ET
+tree = ET.parse(sys.stdin)
+release = tree.find('.//release')
+if release is not None:
+    print(release.text)
+" 2>/dev/null
+}
+
+fetch_latest_gradle_version() {
+    echo -e "${GRAY}  Querying latest Gradle version...${NC}" >&2
+    local result
+    result=$(curl -sf --max-time 10 "https://services.gradle.org/versions/current" 2>/dev/null) || return 1
+    echo "$result" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(data.get('version', ''))
+" 2>/dev/null
+}
+
+fetch_latest_fabric_api_version() {
+    local mc_version="$1"
+    echo -e "${GRAY}  Querying latest Fabric API for Minecraft ${mc_version}...${NC}" >&2
+    local xml
+    xml=$(curl -sf --max-time 10 "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml" 2>/dev/null) || return 1
+    echo "$xml" | python3 -c "
+import sys, xml.etree.ElementTree as ET
+mc = '$mc_version'
+tree = ET.parse(sys.stdin)
+versions = [v.text for v in tree.findall('.//version') if v.text and v.text.endswith('+' + mc)]
+if versions:
+    print(versions[-1])
+else:
+    # Try major.minor match
+    parts = mc.split('.')
+    mc_short = '.'.join(parts[:2])
+    versions = [v.text for v in tree.findall('.//version') if v.text and v.text.endswith('+' + mc_short)]
+    if versions:
+        print(versions[-1])
+" 2>/dev/null
+}
+
+# --- Main Script ---
+
 print_header
 
 # Gather input
@@ -62,6 +143,36 @@ if ! [[ "$MOD_ID" =~ ^[a-z][a-z0-9_]*$ ]]; then
     exit 1
 fi
 
+# Fetch latest versions
+echo -e "${CYAN}Fetching latest Fabric versions...${NC}"
+
+# Read current defaults from gradle.properties
+DEFAULT_MC_VERSION=$(grep -oP 'minecraft_version=\K.*' "$SCRIPT_DIR/gradle.properties" 2>/dev/null || echo "1.21.4")
+DEFAULT_LOADER_VERSION=$(grep -oP 'loader_version=\K.*' "$SCRIPT_DIR/gradle.properties" 2>/dev/null || echo "0.16.9")
+DEFAULT_LOOM_VERSION=$(grep -oP 'loom_version=\K.*' "$SCRIPT_DIR/gradle.properties" 2>/dev/null || echo "1.9-SNAPSHOT")
+DEFAULT_FABRIC_VERSION=$(grep -oP '#?\s*fabric_version=\K.*' "$SCRIPT_DIR/gradle.properties" 2>/dev/null || echo "0.111.0+1.21.4")
+
+FETCHED_MC_VERSION=$(fetch_latest_mc_version 2>&1 | tail -1) || FETCHED_MC_VERSION=""
+FETCHED_LOADER_VERSION=$(fetch_latest_loader_version 2>&1 | tail -1) || FETCHED_LOADER_VERSION=""
+FETCHED_LOOM_VERSION=$(fetch_latest_loom_version 2>&1 | tail -1) || FETCHED_LOOM_VERSION=""
+FETCHED_GRADLE_VERSION=$(fetch_latest_gradle_version 2>&1 | tail -1) || FETCHED_GRADLE_VERSION=""
+
+# Use override > fetched > default
+if [[ -n "$MC_VERSION_OVERRIDE" ]]; then
+    MC_VERSION="$MC_VERSION_OVERRIDE"
+elif [[ -n "$FETCHED_MC_VERSION" ]]; then
+    MC_VERSION="$FETCHED_MC_VERSION"
+else
+    MC_VERSION="$DEFAULT_MC_VERSION"
+fi
+
+LOADER_VERSION="${FETCHED_LOADER_VERSION:-$DEFAULT_LOADER_VERSION}"
+LOOM_VERSION="${FETCHED_LOOM_VERSION:-$DEFAULT_LOOM_VERSION}"
+GRADLE_VERSION="${FETCHED_GRADLE_VERSION:-8.12}"
+
+FETCHED_FABRIC_VERSION=$(fetch_latest_fabric_api_version "$MC_VERSION" 2>&1 | tail -1) || FETCHED_FABRIC_VERSION=""
+FABRIC_VERSION="${FETCHED_FABRIC_VERSION:-$DEFAULT_FABRIC_VERSION}"
+
 echo ""
 echo -e "${YELLOW}Configuration:${NC}"
 echo "  Mod ID:      $MOD_ID"
@@ -69,6 +180,13 @@ echo "  Mod Name:    $MOD_NAME"
 echo "  Package:     $PACKAGE"
 echo "  Author:      $AUTHOR"
 echo "  Description: $DESCRIPTION"
+echo ""
+echo -e "${YELLOW}Versions:${NC}"
+echo "  Minecraft:   $MC_VERSION"
+echo "  Loader:      $LOADER_VERSION"
+echo "  Loom:        $LOOM_VERSION"
+echo "  Gradle:      $GRADLE_VERSION"
+echo "  Fabric API:  $FABRIC_VERSION"
 echo ""
 
 if [[ "$FORCE" != "true" ]]; then
@@ -97,11 +215,19 @@ NEW_ASSETS_DIR="$ASSETS_DIR/$MOD_ID"
 # Derive class name
 CLASS_NAME="$(to_pascal_case "$MOD_ID")Mod"
 
-# 1. Update gradle.properties
+# 1. Update Gradle wrapper
+echo -e "${GRAY}  Updating Gradle wrapper to $GRADLE_VERSION...${NC}"
+sed -i.bak "s/gradle-[0-9.]*-bin\.zip/gradle-$GRADLE_VERSION-bin.zip/" "$SCRIPT_DIR/gradle/wrapper/gradle-wrapper.properties"
+rm -f "$SCRIPT_DIR/gradle/wrapper/gradle-wrapper.properties.bak"
+
+# 2. Update gradle.properties
 echo -e "${GRAY}  Updating gradle.properties...${NC}"
+sed -i.bak "s/minecraft_version=.*/minecraft_version=$MC_VERSION/" "$SCRIPT_DIR/gradle.properties"
+sed -i.bak "s/loader_version=.*/loader_version=$LOADER_VERSION/" "$SCRIPT_DIR/gradle.properties"
+sed -i.bak "s/loom_version=.*/loom_version=$LOOM_VERSION/" "$SCRIPT_DIR/gradle.properties"
 sed -i.bak "s/maven_group=.*/maven_group=$PACKAGE/" "$SCRIPT_DIR/gradle.properties"
 sed -i.bak "s/archives_base_name=.*/archives_base_name=$MOD_ID/" "$SCRIPT_DIR/gradle.properties"
-sed -i.bak "s/# fabric_version=/fabric_version=/" "$SCRIPT_DIR/gradle.properties"
+sed -i.bak "s|# fabric_version=.*|fabric_version=$FABRIC_VERSION|" "$SCRIPT_DIR/gradle.properties"
 rm -f "$SCRIPT_DIR/gradle.properties.bak"
 
 # 2. Update build.gradle - enable Fabric API
@@ -148,8 +274,8 @@ cat > "$RESOURCES_DIR/fabric.mod.json" << EOF
   },
   "mixins": ["$MOD_ID.mixins.json"],
   "depends": {
-    "fabricloader": ">=0.16.9",
-    "minecraft": "~1.21.4",
+    "fabricloader": ">=$LOADER_VERSION",
+    "minecraft": "~$MC_VERSION",
     "java": ">=21",
     "fabric-api": "*"
   }

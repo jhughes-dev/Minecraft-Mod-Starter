@@ -7,6 +7,7 @@ param(
     [string]$Package,
     [string]$Author,
     [string]$Description,
+    [string]$MinecraftVersion,
     [switch]$Force
 )
 
@@ -32,9 +33,78 @@ function Convert-ToPackagePath {
     return $Package -replace '\.', '/'
 }
 
+# --- Version Auto-Detection ---
+
+function Get-LatestMinecraftVersion {
+    Write-Host "  Querying latest stable Minecraft version..." -ForegroundColor Gray
+    try {
+        $versions = Invoke-RestMethod -Uri "https://meta.fabricmc.net/v2/versions/game" -TimeoutSec 10
+        $stable = $versions | Where-Object { $_.stable -eq $true } | Select-Object -First 1
+        return $stable.version
+    } catch {
+        Write-Host "  Warning: Could not fetch Minecraft versions. Using default." -ForegroundColor Yellow
+        return $null
+    }
+}
+
+function Get-LatestLoaderVersion {
+    Write-Host "  Querying latest stable Fabric Loader version..." -ForegroundColor Gray
+    try {
+        $versions = Invoke-RestMethod -Uri "https://meta.fabricmc.net/v2/versions/loader" -TimeoutSec 10
+        $stable = $versions | Where-Object { $_.stable -eq $true } | Select-Object -First 1
+        return $stable.version
+    } catch {
+        Write-Host "  Warning: Could not fetch loader versions. Using default." -ForegroundColor Yellow
+        return $null
+    }
+}
+
+function Get-LatestLoomVersion {
+    Write-Host "  Querying latest Fabric Loom version..." -ForegroundColor Gray
+    try {
+        $xml = [xml](Invoke-WebRequest -Uri "https://maven.fabricmc.net/net/fabricmc/fabric-loom/maven-metadata.xml" -TimeoutSec 10 -UseBasicParsing).Content
+        return $xml.metadata.versioning.release
+    } catch {
+        Write-Host "  Warning: Could not fetch Loom versions. Using default." -ForegroundColor Yellow
+        return $null
+    }
+}
+
+function Get-LatestGradleVersion {
+    Write-Host "  Querying latest Gradle version..." -ForegroundColor Gray
+    try {
+        $info = Invoke-RestMethod -Uri "https://services.gradle.org/versions/current" -TimeoutSec 10
+        return $info.version
+    } catch {
+        Write-Host "  Warning: Could not fetch Gradle versions. Using default." -ForegroundColor Yellow
+        return $null
+    }
+}
+
+function Get-LatestFabricApiVersion {
+    param([string]$McVersion)
+    Write-Host "  Querying latest Fabric API for Minecraft $McVersion..." -ForegroundColor Gray
+    try {
+        $xml = [xml](Invoke-WebRequest -Uri "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml" -TimeoutSec 10 -UseBasicParsing).Content
+        $allVersions = $xml.metadata.versioning.versions.version
+        $matching = $allVersions | Where-Object { $_ -like "*+$McVersion" } | Select-Object -Last 1
+        if ($matching) { return $matching }
+        Write-Host "  Warning: No Fabric API found for MC $McVersion. Trying without patch version..." -ForegroundColor Yellow
+        # Try major.minor match (e.g., 1.21 for 1.21.4)
+        $majorMinor = ($McVersion -split '\.')[0..1] -join '.'
+        $matching = $allVersions | Where-Object { $_ -like "*+$majorMinor" } | Select-Object -Last 1
+        return $matching
+    } catch {
+        Write-Host "  Warning: Could not fetch Fabric API versions. Using default." -ForegroundColor Yellow
+        return $null
+    }
+}
+
+# --- Main Script ---
+
 Write-Header
 
-# Gather input if not provided as parameters
+# Gather mod info if not provided as parameters
 if ([string]::IsNullOrWhiteSpace($ModId)) {
     $ModId = Get-Input -Prompt "Mod ID (lowercase, no spaces, e.g., 'mymod')" -Default "mymod"
 }
@@ -57,6 +127,34 @@ if ($ModId -notmatch '^[a-z][a-z0-9_]*$') {
     exit 1
 }
 
+# Fetch latest versions
+Write-Host "Fetching latest Fabric versions..." -ForegroundColor Cyan
+
+# Read current defaults from gradle.properties
+$propsPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "gradle.properties"
+$currentProps = Get-Content $propsPath -Raw
+$defaultMcVersion = if ($currentProps -match 'minecraft_version=(.+)') { $Matches[1].Trim() } else { "1.21.4" }
+$defaultLoaderVersion = if ($currentProps -match 'loader_version=(.+)') { $Matches[1].Trim() } else { "0.16.9" }
+$defaultLoomVersion = if ($currentProps -match 'loom_version=(.+)') { $Matches[1].Trim() } else { "1.9-SNAPSHOT" }
+$defaultFabricVersion = if ($currentProps -match '(?:#\s*)?fabric_version=(.+)') { $Matches[1].Trim() } else { "0.111.0+1.21.4" }
+
+$fetchedMcVersion = Get-LatestMinecraftVersion
+$fetchedLoaderVersion = Get-LatestLoaderVersion
+$fetchedLoomVersion = Get-LatestLoomVersion
+$fetchedGradleVersion = Get-LatestGradleVersion
+
+# Use fetched MC version or parameter or default
+$mcVersion = if (-not [string]::IsNullOrWhiteSpace($MinecraftVersion)) { $MinecraftVersion }
+             elseif ($fetchedMcVersion) { $fetchedMcVersion }
+             else { $defaultMcVersion }
+
+$loaderVersion = if ($fetchedLoaderVersion) { $fetchedLoaderVersion } else { $defaultLoaderVersion }
+$loomVersion = if ($fetchedLoomVersion) { $fetchedLoomVersion } else { $defaultLoomVersion }
+$gradleVersion = if ($fetchedGradleVersion) { $fetchedGradleVersion } else { "8.12" }
+
+$fetchedFabricVersion = Get-LatestFabricApiVersion -McVersion $mcVersion
+$fabricVersion = if ($fetchedFabricVersion) { $fetchedFabricVersion } else { $defaultFabricVersion }
+
 Write-Host ""
 Write-Host "Configuration:" -ForegroundColor Yellow
 Write-Host "  Mod ID:      $ModId"
@@ -64,6 +162,13 @@ Write-Host "  Mod Name:    $ModName"
 Write-Host "  Package:     $Package"
 Write-Host "  Author:      $Author"
 Write-Host "  Description: $Description"
+Write-Host ""
+Write-Host "Versions:" -ForegroundColor Yellow
+Write-Host "  Minecraft:   $mcVersion"
+Write-Host "  Loader:      $loaderVersion"
+Write-Host "  Loom:        $loomVersion"
+Write-Host "  Gradle:      $gradleVersion"
+Write-Host "  Fabric API:  $fabricVersion"
 Write-Host ""
 
 if (-not $Force) {
@@ -94,12 +199,22 @@ $newAssetsDir = Join-Path $assetsDir $ModId
 $ClassName = ($ModId -split '_' | ForEach-Object { $_.Substring(0,1).ToUpper() + $_.Substring(1) }) -join ''
 $ClassName = $ClassName + "Mod"
 
-# 1. Update gradle.properties
+# 1. Update Gradle wrapper
+Write-Host "  Updating Gradle wrapper to $gradleVersion..." -ForegroundColor Gray
+$wrapperPropsPath = Join-Path $scriptDir "gradle/wrapper/gradle-wrapper.properties"
+$wrapperProps = Get-Content $wrapperPropsPath -Raw
+$wrapperProps = $wrapperProps -replace 'gradle-[\d.]+-bin\.zip', "gradle-$gradleVersion-bin.zip"
+Set-Content $wrapperPropsPath $wrapperProps -NoNewline
+
+# 2. Update gradle.properties
 Write-Host "  Updating gradle.properties..." -ForegroundColor Gray
 $gradleProps = Get-Content (Join-Path $scriptDir "gradle.properties") -Raw
+$gradleProps = $gradleProps -replace 'minecraft_version=.*', "minecraft_version=$mcVersion"
+$gradleProps = $gradleProps -replace 'loader_version=.*', "loader_version=$loaderVersion"
+$gradleProps = $gradleProps -replace 'loom_version=.*', "loom_version=$loomVersion"
 $gradleProps = $gradleProps -replace 'maven_group=.*', "maven_group=$Package"
 $gradleProps = $gradleProps -replace 'archives_base_name=.*', "archives_base_name=$ModId"
-$gradleProps = $gradleProps -replace '# fabric_version=', 'fabric_version='
+$gradleProps = $gradleProps -replace '# fabric_version=.*', "fabric_version=$fabricVersion"
 Set-Content (Join-Path $scriptDir "gradle.properties") $gradleProps -NoNewline
 
 # 2. Update build.gradle - enable Fabric API
@@ -148,8 +263,8 @@ $fabricJson = @"
   },
   "mixins": ["$ModId.mixins.json"],
   "depends": {
-    "fabricloader": ">=0.16.9",
-    "minecraft": "~1.21.4",
+    "fabricloader": ">=$loaderVersion",
+    "minecraft": "~$mcVersion",
     "java": ">=21",
     "fabric-api": "*"
   }

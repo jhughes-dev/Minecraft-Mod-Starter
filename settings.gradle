@@ -1,10 +1,17 @@
 pluginManagement {
+    // Load versions from gradle.properties
+    def props = new Properties()
+    file('gradle.properties').withInputStream { props.load(it) }
+
     repositories {
         maven {
             name = 'Fabric'
             url = 'https://maven.fabricmc.net/'
         }
         gradlePluginPortal()
+    }
+    plugins {
+        id 'fabric-loom' version props.getProperty('loom_version')
     }
 }
 
