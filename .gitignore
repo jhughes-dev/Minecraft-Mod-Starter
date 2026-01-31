@@ -23,7 +23,7 @@ bin/
 # macOS
 .DS_Store
 
-# Fabric
+# Fabric / NeoForge
 run/
 
 # Misc

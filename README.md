@@ -1,6 +1,6 @@
-# Fabric Mod Boilerplate
+# Multi-Loader Mod Boilerplate
 
-A minimal boilerplate for creating Minecraft mods with Fabric.
+A minimal boilerplate for creating Minecraft mods targeting both **Fabric** and **NeoForge** using [Architectury](https://docs.architectury.dev/).
 
 ## Requirements
 
@@ -35,129 +35,99 @@ The script will prompt for:
 
 The script automatically:
 
-- Renames all files and directories
+- Fetches latest Minecraft, Fabric, NeoForge, and Gradle versions
+- Renames all files and directories across all modules
 - Enables Fabric API
 - Creates mixin configuration
 - Updates all references
 
-### Manual Setup
+Non-interactive mode:
 
-1. Clone or copy this repository
-1. Customize the mod (see checklist below)
-1. Run `./gradlew build` to compile
-
-## Manual Customization Checklist
-
-When starting a new mod, update these files:
-
-### gradle.properties
-
-```properties
-maven_group=io.github.yourname      # Your package group
-archives_base_name=yourmodid        # Your mod ID
-mod_version=1.0.0                   # Your mod version
-```
-
-### fabric.mod.json
-
-- `id`: Your mod ID (lowercase, no spaces)
-- `name`: Display name
-- `description`: Mod description
-- `authors`: Your name
-- `contact`: Your URLs
-- `entrypoints.main`: Update package path
-
-### Source Code
-
-1. Rename package `io.github.yourname.modid` to match your `maven_group` + mod ID
-1. Rename `ExampleMod.java` to your mod name
-1. Update `MOD_ID` constant in your main class
-
-### Assets
-
-- Rename `src/main/resources/assets/modid/` to match your mod ID
-- Replace `icon.png` with your 128x128 mod icon
-
-## Fabric API
-
-Fabric API is enabled by default after running the setup script.
-
-If setting up manually, uncomment this line in `build.gradle`:
-
-```gradle
-modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-```
-
-## Mixins
-
-Mixin support is configured automatically by the setup script. The mixin config file is at `src/main/resources/<modid>.mixins.json`.
-
-To add a mixin:
-
-1. Create a class in your `mixin` package:
-
-```java
-package your.package.mixin;
-
-import net.minecraft.client.gui.screen.TitleScreen;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-
-@Mixin(TitleScreen.class)
-public class TitleScreenMixin {
-    @Inject(at = @At("HEAD"), method = "init")
-    private void onInit(CallbackInfo info) {
-        System.out.println("Mixin injected!");
-    }
-}
-```
-
-1. Register it in `<modid>.mixins.json`:
-
-```json
-{
-  "client": ["TitleScreenMixin"]
-}
-```
-
-Use `"mixins"` for common mixins, `"client"` for client-only, `"server"` for server-only.
-
-## Build Commands
-
-```bash
-# Build the mod
-./gradlew build
-
-# Run Minecraft client with mod
-./gradlew runClient
-
-# Run Minecraft server with mod
-./gradlew runServer
-
-# Clean build artifacts
-./gradlew clean
+```powershell
+.\setup.ps1 -ModId "mymod" -ModName "My Mod" -Package "io.github.me.mymod" -Author "Me" -Description "My mod" -Force
 ```
 
 ## Project Structure
 
 ```text
-├── src/main/
-│   ├── java/                    # Java source code
-│   └── resources/
-│       ├── fabric.mod.json      # Mod metadata
-│       └── assets/modid/        # Mod assets (textures, etc.)
-├── build.gradle                 # Build configuration
-├── gradle.properties            # Version configuration
-└── settings.gradle              # Gradle settings
+├── common/                         # Shared code (both loaders)
+│   └── src/main/
+│       ├── java/                   # Platform-agnostic mod logic
+│       └── resources/assets/       # Shared assets (textures, etc.)
+├── fabric/                         # Fabric-specific code
+│   └── src/main/
+│       ├── java/                   # Fabric entry point
+│       └── resources/
+│           ├── fabric.mod.json     # Fabric mod metadata
+│           └── *.mixins.json       # Mixin configuration
+├── neoforge/                       # NeoForge-specific code
+│   └── src/main/
+│       ├── java/                   # NeoForge entry point
+│       └── resources/META-INF/
+│           └── neoforge.mods.toml  # NeoForge mod metadata
+├── build.gradle                    # Root build configuration
+├── settings.gradle                 # Multi-module settings
+└── gradle.properties               # Version configuration
 ```
+
+## Build Commands
+
+```bash
+# Build both Fabric and NeoForge JARs
+./gradlew build
+
+# Build only Fabric
+./gradlew :fabric:build
+
+# Build only NeoForge
+./gradlew :neoforge:build
+
+# Run Minecraft client with Fabric
+./gradlew :fabric:runClient
+
+# Run Minecraft client with NeoForge
+./gradlew :neoforge:runClient
+
+# Clean build artifacts
+./gradlew clean
+```
+
+Build outputs:
+
+- `fabric/build/libs/<modid>-<version>.jar`
+- `neoforge/build/libs/<modid>-<version>.jar`
+
+## Adding Code
+
+- **Shared logic** goes in `common/` - this code runs on both loaders
+- **Fabric-specific** code goes in `fabric/` (e.g., Fabric API usage)
+- **NeoForge-specific** code goes in `neoforge/` (e.g., NeoForge events)
+
+The common module's `init()` method is called by both platform entry points.
+
+## Mixins
+
+Mixin support is configured for Fabric. The mixin config file is at `fabric/src/main/resources/<modid>.mixins.json`.
+
+To add a mixin, create a class in your `mixin` package under `fabric/src/main/java/` and register it in the mixins JSON.
+
+## Fabric API
+
+Fabric API is enabled by default after running the setup script.
+
+If setting up manually, uncomment this line in `fabric/build.gradle`:
+
+```gradle
+modApi "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_api_version}"
+```
+
+And uncomment `fabric_api_version` in `gradle.properties`.
 
 ## Resources
 
+- [Architectury Documentation](https://docs.architectury.dev/)
 - [Fabric Documentation](https://docs.fabricmc.net/)
-- [Fabric Discord](https://discord.gg/v6v4pMv)
-- [Fabric API on Modrinth](https://modrinth.com/mod/fabric-api)
+- [NeoForge Documentation](https://docs.neoforged.net/)
 
 ## License
 

@@ -1,0 +1,2 @@
+Replace this file with your mod icon (128x128 PNG).
+Rename it to icon.png after adding your image.
