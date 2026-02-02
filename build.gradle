@@ -1,3 +1,11 @@
+buildscript {
+    if (rootProject.hasProperty("kotlin_version")) {
+        dependencies {
+            classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${rootProject.kotlin_version}"
+        }
+    }
+}
+
 plugins {
     id "architectury-plugin" version "${architectury_plugin_version}"
     id "dev.architectury.loom" version "${architectury_loom_version}" apply false

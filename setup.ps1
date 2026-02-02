@@ -237,7 +237,7 @@ $gradleProps = $gradleProps -replace '# fabric_api_version=.*', "fabric_api_vers
 $gradleProps = $gradleProps -replace 'neoforge_version=.*', "neoforge_version=$neoForgeVersion"
 $gradleProps = $gradleProps -replace '# mod_language=.*', "mod_language=$Language"
 if ($UseKotlin) {
-    $gradleProps = $gradleProps -replace '# kotlin_version=(.*)', 'kotlin_version=`$1'
+    $gradleProps = $gradleProps -replace '# kotlin_version=(.*)', 'kotlin_version=$1'
 }
 $gradleProps = $gradleProps -replace 'maven_group=.*', "maven_group=$Package"
 $gradleProps = $gradleProps -replace 'archives_base_name=.*', "archives_base_name=$ModId"
