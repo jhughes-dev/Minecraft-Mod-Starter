@@ -333,7 +333,9 @@ fi
 # 6. Create Fabric module source
 echo -e "${GRAY}  Creating Fabric module source...${NC}"
 mkdir -p "$NEW_FABRIC_PACKAGE"
-mkdir -p "$(dirname "$NEW_FABRIC_PACKAGE")/mixin"
+# Mixin dir always goes in java source tree (mixins must be Java even when using Kotlin)
+FABRIC_MIXIN_DIR="$FABRIC_JAVA_DIR/$PACKAGE_PATH/mixin"
+mkdir -p "$FABRIC_MIXIN_DIR"
 
 if [[ "$USE_KOTLIN" == "true" ]]; then
     cat > "$NEW_FABRIC_PACKAGE/${CLASS_NAME}Fabric.kt" << EOF
@@ -364,7 +366,7 @@ public class ${CLASS_NAME}Fabric implements ModInitializer {
 EOF
 fi
 
-cat > "$(dirname "$NEW_FABRIC_PACKAGE")/mixin/package-info.java" << EOF
+cat > "$FABRIC_MIXIN_DIR/package-info.java" << EOF
 /** Mixin classes for $MOD_NAME */
 package $PACKAGE.mixin;
 EOF

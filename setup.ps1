@@ -322,7 +322,6 @@ if ((Test-Path $oldCommonAssets) -and ($oldCommonAssets -ne $newCommonAssets)) {
 # 6. Create Fabric module source
 Write-Host "  Creating Fabric module source..." -ForegroundColor Gray
 $null = New-Item -ItemType Directory -Path $newFabricPackagePath -Force
-$null = New-Item -ItemType Directory -Path (Join-Path (Split-Path $newFabricPackagePath -Parent) "mixin") -Force
 
 if ($UseKotlin) {
     $fabricClass = @"
@@ -355,8 +354,10 @@ public class ${ClassNameMod}Fabric implements ModInitializer {
     Set-Content (Join-Path $newFabricPackagePath "${ClassNameMod}Fabric.java") $fabricClass
 }
 
-# Create mixin package-info for fabric
-Set-Content (Join-Path (Split-Path $newFabricPackagePath -Parent) "mixin/package-info.java") "/** Mixin classes for $ModName */`npackage $Package.mixin;"
+# Create mixin package-info for fabric (mixins must be Java even when using Kotlin)
+$mixinDir = Join-Path $fabricJavaDir "$packagePath/mixin"
+$null = New-Item -ItemType Directory -Path $mixinDir -Force
+Set-Content (Join-Path $mixinDir "package-info.java") "/** Mixin classes for $ModName */`npackage $Package.mixin;"
 
 # Remove old fabric source
 if ((Test-Path $oldFabricPackagePath) -and ($oldFabricPackagePath -ne $newFabricPackagePath)) {

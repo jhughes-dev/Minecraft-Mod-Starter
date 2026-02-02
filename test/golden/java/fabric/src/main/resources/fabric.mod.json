@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "testmod",
+  "version": "${version}",
+  "name": "Test Mod",
+  "description": "A test mod",
+  "authors": ["TestAuthor"],
+  "contact": {
+    "homepage": "https://github.com/yourname/testmod",
+    "sources": "https://github.com/yourname/testmod"
+  },
+  "license": "MIT",
+  "icon": "assets/testmod/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.example.testmod.fabric.TestmodModFabric"]
+  },
+  "mixins": ["testmod.mixins.json"],
+  "depends": {
+    "fabricloader": ">=__LOADER_VERSION__",
+    "minecraft": "~__MC_VERSION__",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
