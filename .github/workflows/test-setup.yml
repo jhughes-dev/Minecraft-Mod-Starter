@@ -7,21 +7,30 @@ on:
     branches: [main]
 
 jobs:
-  test-bash:
-    name: "Bash setup (${{ matrix.language }})"
+  test-setup:
+    name: "${{ matrix.shell }} + ${{ matrix.language }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        shell: [bash, pwsh]
         language: [java, kotlin]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run setup.sh
+      - name: Run setup (bash)
+        if: matrix.shell == 'bash'
         run: |
           chmod +x setup.sh
           printf 'testmod\nTest Mod\ncom.example.testmod\nTestAuthor\nA test mod\n${{ matrix.language }}\n' \
             | bash setup.sh --force
+
+      - name: Run setup (pwsh)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          ./setup.ps1 -ModId "testmod" -ModName "Test Mod" -Package "com.example.testmod" `
+            -Author "TestAuthor" -Description "A test mod" -Language "${{ matrix.language }}" -Force
 
       - name: Verify gradle.properties
         run: |
@@ -96,120 +105,3 @@ jobs:
 
           [ "$FAIL" -eq 0 ] || exit 1
           echo "All golden file comparisons passed."
-
-  test-powershell:
-    name: "PowerShell setup (${{ matrix.language }})"
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [java, kotlin]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run setup.ps1
-        shell: pwsh
-        run: |
-          .\setup.ps1 -ModId "testmod" -ModName "Test Mod" -Package "com.example.testmod" `
-            -Author "TestAuthor" -Description "A test mod" -Language "${{ matrix.language }}" -Force
-
-      - name: Verify gradle.properties
-        shell: pwsh
-        run: |
-          $props = Get-Content gradle.properties -Raw
-          if ($props -notmatch 'archives_base_name=testmod') { throw "Missing archives_base_name" }
-          if ($props -notmatch 'maven_group=com.example.testmod') { throw "Missing maven_group" }
-          if ($props -notmatch 'mod_name=Test Mod') { throw "Missing mod_name" }
-          if ($props -notmatch 'mod_language=${{ matrix.language }}') { throw "Missing mod_language" }
-
-      - name: Verify Fabric API enabled
-        shell: pwsh
-        run: |
-          $content = Get-Content fabric/build.gradle -Raw
-          if ($content -notmatch 'modApi "net.fabricmc.fabric-api:fabric-api') { throw "Fabric API not enabled" }
-
-      - name: Verify Kotlin-specific settings
-        if: matrix.language == 'kotlin'
-        shell: pwsh
-        run: |
-          $props = Get-Content gradle.properties -Raw
-          if ($props -notmatch '(?m)^kotlin_version=') { throw "kotlin_version not enabled" }
-          if (Test-Path "common\src\main\java\com\example\testmod\TestmodMod.java") {
-            throw "Java source not cleaned up"
-          }
-
-      - name: Verify common assets renamed
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "common\src\main\resources\assets\testmod")) { throw "Assets not renamed" }
-
-      - name: Normalize versions in generated metadata
-        shell: pwsh
-        run: |
-          .\test\normalize-versions.ps1 -File "fabric\src\main\resources\fabric.mod.json"
-          .\test\normalize-versions.ps1 -File "neoforge\src\main\resources\META-INF\neoforge.mods.toml"
-
-      - name: Diff against golden files
-        shell: pwsh
-        run: |
-          $lang = "${{ matrix.language }}"
-          $golden = "test/golden/$lang"
-          $fail = $false
-
-          function Compare-Golden($actual, $expected) {
-            if (-not (Test-Path $actual)) {
-              Write-Host "::error::MISSING: $actual"
-              return $false
-            }
-            $a = (Get-Content $actual -Raw) -replace "`r`n", "`n"
-            $e = (Get-Content $expected -Raw) -replace "`r`n", "`n"
-            if ($a -ne $e) {
-              Write-Host "::error::MISMATCH: $actual vs $expected"
-              $aLines = $a -split "`n"
-              $eLines = $e -split "`n"
-              $max = [Math]::Max($aLines.Count, $eLines.Count)
-              for ($i = 0; $i -lt $max; $i++) {
-                $el = if ($i -lt $eLines.Count) { $eLines[$i] } else { "" }
-                $al = if ($i -lt $aLines.Count) { $aLines[$i] } else { "" }
-                if ($el -ne $al) {
-                  Write-Host "  Line $($i+1):" -ForegroundColor Yellow
-                  Write-Host "    - $el" -ForegroundColor Red
-                  Write-Host "    + $al" -ForegroundColor Green
-                }
-              }
-              return $false
-            }
-            return $true
-          }
-
-          if ($lang -eq "java") {
-            if (-not (Compare-Golden "common/src/main/java/com/example/testmod/TestmodMod.java" `
-                "$golden/common/src/main/java/com/example/testmod/TestmodMod.java")) { $fail = $true }
-            if (-not (Compare-Golden "fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" `
-                "$golden/fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java")) { $fail = $true }
-            if (-not (Compare-Golden "fabric/src/main/java/com/example/testmod/mixin/package-info.java" `
-                "$golden/fabric/src/main/java/com/example/testmod/mixin/package-info.java")) { $fail = $true }
-            if (-not (Compare-Golden "neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" `
-                "$golden/neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java")) { $fail = $true }
-          } else {
-            if (-not (Compare-Golden "common/src/main/kotlin/com/example/testmod/TestmodMod.kt" `
-                "$golden/common/src/main/kotlin/com/example/testmod/TestmodMod.kt")) { $fail = $true }
-            if (-not (Compare-Golden "fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" `
-                "$golden/fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt")) { $fail = $true }
-            if (-not (Compare-Golden "fabric/src/main/java/com/example/testmod/mixin/package-info.java" `
-                "$golden/fabric/src/main/java/com/example/testmod/mixin/package-info.java")) { $fail = $true }
-            if (-not (Compare-Golden "neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" `
-                "$golden/neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt")) { $fail = $true }
-          }
-
-          if (-not (Compare-Golden "fabric/src/main/resources/fabric.mod.json" `
-              "$golden/fabric/src/main/resources/fabric.mod.json")) { $fail = $true }
-          if (-not (Compare-Golden "fabric/src/main/resources/testmod.mixins.json" `
-              "$golden/fabric/src/main/resources/testmod.mixins.json")) { $fail = $true }
-          if (-not (Compare-Golden "neoforge/src/main/resources/META-INF/neoforge.mods.toml" `
-              "$golden/neoforge/src/main/resources/META-INF/neoforge.mods.toml")) { $fail = $true }
-          if (-not (Compare-Golden "settings.gradle" `
-              "$golden/settings.gradle")) { $fail = $true }
-
-          if ($fail) { exit 1 }
-          Write-Host "All golden file comparisons passed." -ForegroundColor Green
