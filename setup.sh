@@ -128,6 +128,14 @@ MOD_NAME=$(get_input "Mod Display Name" "My Mod")
 PACKAGE=$(get_input "Package name (e.g., 'io.github.username.mymod')" "io.github.yourname.$MOD_ID")
 AUTHOR=$(get_input "Author name" "Your Name")
 DESCRIPTION=$(get_input "Mod description" "A Minecraft mod")
+LANGUAGE=$(get_input "Language (java/kotlin)" "java")
+LANGUAGE=$(echo "$LANGUAGE" | tr '[:upper:]' '[:lower:]')
+if [[ "$LANGUAGE" != "java" && "$LANGUAGE" != "kotlin" ]]; then
+    echo -e "${RED}Error: Language must be 'java' or 'kotlin'${NC}"
+    exit 1
+fi
+USE_KOTLIN=false
+[[ "$LANGUAGE" == "kotlin" ]] && USE_KOTLIN=true
 
 # Validate mod ID
 if ! [[ "$MOD_ID" =~ ^[a-z][a-z0-9_]*$ ]]; then
@@ -174,6 +182,7 @@ echo "  Mod Name:    $MOD_NAME"
 echo "  Package:     $PACKAGE"
 echo "  Author:      $AUTHOR"
 echo "  Description: $DESCRIPTION"
+echo "  Language:    $LANGUAGE"
 echo ""
 echo -e "${YELLOW}Versions:${NC}"
 echo "  Minecraft:     $MC_VERSION"
@@ -199,19 +208,26 @@ CLASS_NAME="$(to_pascal_case "$MOD_ID")Mod"
 PACKAGE_PATH=$(to_package_path "$PACKAGE")
 
 # --- Paths ---
-COMMON_JAVA_DIR="$SCRIPT_DIR/common/src/main/java"
+SRC_LANG="java"
+[[ "$USE_KOTLIN" == "true" ]] && SRC_LANG="kotlin"
+COMMON_SRC_DIR="$SCRIPT_DIR/common/src/main/$SRC_LANG"
 COMMON_RESOURCES_DIR="$SCRIPT_DIR/common/src/main/resources"
-FABRIC_JAVA_DIR="$SCRIPT_DIR/fabric/src/main/java"
+FABRIC_SRC_DIR="$SCRIPT_DIR/fabric/src/main/$SRC_LANG"
 FABRIC_RESOURCES_DIR="$SCRIPT_DIR/fabric/src/main/resources"
-NEOFORGE_JAVA_DIR="$SCRIPT_DIR/neoforge/src/main/java"
+NEOFORGE_SRC_DIR="$SCRIPT_DIR/neoforge/src/main/$SRC_LANG"
 NEOFORGE_RESOURCES_DIR="$SCRIPT_DIR/neoforge/src/main/resources"
 
+# Old paths (always in java dir, from template defaults)
+COMMON_JAVA_DIR="$SCRIPT_DIR/common/src/main/java"
+FABRIC_JAVA_DIR="$SCRIPT_DIR/fabric/src/main/java"
+NEOFORGE_JAVA_DIR="$SCRIPT_DIR/neoforge/src/main/java"
+
 OLD_COMMON_PACKAGE="$COMMON_JAVA_DIR/io/github/yourname/modid"
-NEW_COMMON_PACKAGE="$COMMON_JAVA_DIR/$PACKAGE_PATH"
+NEW_COMMON_PACKAGE="$COMMON_SRC_DIR/$PACKAGE_PATH"
 OLD_FABRIC_PACKAGE="$FABRIC_JAVA_DIR/io/github/yourname/modid/fabric"
-NEW_FABRIC_PACKAGE="$FABRIC_JAVA_DIR/$PACKAGE_PATH/fabric"
+NEW_FABRIC_PACKAGE="$FABRIC_SRC_DIR/$PACKAGE_PATH/fabric"
 OLD_NEOFORGE_PACKAGE="$NEOFORGE_JAVA_DIR/io/github/yourname/modid/neoforge"
-NEW_NEOFORGE_PACKAGE="$NEOFORGE_JAVA_DIR/$PACKAGE_PATH/neoforge"
+NEW_NEOFORGE_PACKAGE="$NEOFORGE_SRC_DIR/$PACKAGE_PATH/neoforge"
 
 # Helper to clean empty parent dirs
 clean_empty_parents() {
@@ -234,6 +250,10 @@ sed -i.bak "s/minecraft_version=.*/minecraft_version=$MC_VERSION/" "$SCRIPT_DIR/
 sed -i.bak "s/fabric_loader_version=.*/fabric_loader_version=$LOADER_VERSION/" "$SCRIPT_DIR/gradle.properties"
 sed -i.bak "s|# fabric_api_version=.*|fabric_api_version=$FABRIC_VERSION|" "$SCRIPT_DIR/gradle.properties"
 sed -i.bak "s/neoforge_version=.*/neoforge_version=$NEOFORGE_VERSION/" "$SCRIPT_DIR/gradle.properties"
+sed -i.bak "s/# mod_language=.*/mod_language=$LANGUAGE/" "$SCRIPT_DIR/gradle.properties"
+if [[ "$USE_KOTLIN" == "true" ]]; then
+    sed -i.bak 's/# kotlin_version=/kotlin_version=/' "$SCRIPT_DIR/gradle.properties"
+fi
 sed -i.bak "s/maven_group=.*/maven_group=$PACKAGE/" "$SCRIPT_DIR/gradle.properties"
 sed -i.bak "s/archives_base_name=.*/archives_base_name=$MOD_ID/" "$SCRIPT_DIR/gradle.properties"
 sed -i.bak "s/mod_name=.*/mod_name=$MOD_NAME/" "$SCRIPT_DIR/gradle.properties"
@@ -253,7 +273,23 @@ rm -f "$SCRIPT_DIR/fabric/build.gradle.bak"
 echo -e "${GRAY}  Creating common module source...${NC}"
 mkdir -p "$NEW_COMMON_PACKAGE"
 
-cat > "$NEW_COMMON_PACKAGE/$CLASS_NAME.java" << EOF
+if [[ "$USE_KOTLIN" == "true" ]]; then
+    cat > "$NEW_COMMON_PACKAGE/$CLASS_NAME.kt" << EOF
+package $PACKAGE
+
+import org.slf4j.LoggerFactory
+
+object $CLASS_NAME {
+    const val MOD_ID = "$MOD_ID"
+    val LOGGER = LoggerFactory.getLogger(MOD_ID)
+
+    fun init() {
+        LOGGER.info("Initializing $MOD_NAME")
+    }
+}
+EOF
+else
+    cat > "$NEW_COMMON_PACKAGE/$CLASS_NAME.java" << EOF
 package $PACKAGE;
 
 import org.slf4j.Logger;
@@ -268,11 +304,15 @@ public class $CLASS_NAME {
     }
 }
 EOF
+fi
 
 # Remove old common source
 if [ -d "$OLD_COMMON_PACKAGE" ] && [ "$OLD_COMMON_PACKAGE" != "$NEW_COMMON_PACKAGE" ]; then
     rm -rf "$OLD_COMMON_PACKAGE"
     clean_empty_parents "$OLD_COMMON_PACKAGE" "$COMMON_JAVA_DIR"
+fi
+if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$COMMON_JAVA_DIR" ]; then
+    find "$COMMON_JAVA_DIR" -type f 2>/dev/null | read || rm -rf "$COMMON_JAVA_DIR"
 fi
 
 # Move common assets
@@ -287,7 +327,21 @@ echo -e "${GRAY}  Creating Fabric module source...${NC}"
 mkdir -p "$NEW_FABRIC_PACKAGE"
 mkdir -p "$(dirname "$NEW_FABRIC_PACKAGE")/mixin"
 
-cat > "$NEW_FABRIC_PACKAGE/${CLASS_NAME}Fabric.java" << EOF
+if [[ "$USE_KOTLIN" == "true" ]]; then
+    cat > "$NEW_FABRIC_PACKAGE/${CLASS_NAME}Fabric.kt" << EOF
+package $PACKAGE.fabric
+
+import $PACKAGE.$CLASS_NAME
+import net.fabricmc.api.ModInitializer
+
+class ${CLASS_NAME}Fabric : ModInitializer {
+    override fun onInitialize() {
+        ${CLASS_NAME}.init()
+    }
+}
+EOF
+else
+    cat > "$NEW_FABRIC_PACKAGE/${CLASS_NAME}Fabric.java" << EOF
 package $PACKAGE.fabric;
 
 import $PACKAGE.$CLASS_NAME;
@@ -300,6 +354,7 @@ public class ${CLASS_NAME}Fabric implements ModInitializer {
     }
 }
 EOF
+fi
 
 cat > "$(dirname "$NEW_FABRIC_PACKAGE")/mixin/package-info.java" << EOF
 /** Mixin classes for $MOD_NAME */
@@ -310,6 +365,9 @@ EOF
 if [ -d "$OLD_FABRIC_PACKAGE" ] && [ "$OLD_FABRIC_PACKAGE" != "$NEW_FABRIC_PACKAGE" ]; then
     rm -rf "$OLD_FABRIC_PACKAGE"
     clean_empty_parents "$OLD_FABRIC_PACKAGE" "$FABRIC_JAVA_DIR"
+fi
+if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$OLD_FABRIC_PACKAGE" ]; then
+    rm -rf "$OLD_FABRIC_PACKAGE" 2>/dev/null || true
 fi
 
 # Create fabric.mod.json
@@ -361,7 +419,23 @@ EOF
 echo -e "${GRAY}  Creating NeoForge module source...${NC}"
 mkdir -p "$NEW_NEOFORGE_PACKAGE"
 
-cat > "$NEW_NEOFORGE_PACKAGE/${CLASS_NAME}NeoForge.java" << EOF
+if [[ "$USE_KOTLIN" == "true" ]]; then
+    cat > "$NEW_NEOFORGE_PACKAGE/${CLASS_NAME}NeoForge.kt" << EOF
+package $PACKAGE.neoforge
+
+import $PACKAGE.$CLASS_NAME
+import net.neoforged.bus.api.IEventBus
+import net.neoforged.fml.common.Mod
+
+@Mod(${CLASS_NAME}.MOD_ID)
+class ${CLASS_NAME}NeoForge(modEventBus: IEventBus) {
+    init {
+        ${CLASS_NAME}.init()
+    }
+}
+EOF
+else
+    cat > "$NEW_NEOFORGE_PACKAGE/${CLASS_NAME}NeoForge.java" << EOF
 package $PACKAGE.neoforge;
 
 import $PACKAGE.$CLASS_NAME;
@@ -375,11 +449,15 @@ public class ${CLASS_NAME}NeoForge {
     }
 }
 EOF
+fi
 
 # Remove old neoforge source
 if [ -d "$OLD_NEOFORGE_PACKAGE" ] && [ "$OLD_NEOFORGE_PACKAGE" != "$NEW_NEOFORGE_PACKAGE" ]; then
     rm -rf "$OLD_NEOFORGE_PACKAGE"
     clean_empty_parents "$OLD_NEOFORGE_PACKAGE" "$NEOFORGE_JAVA_DIR"
+fi
+if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$NEOFORGE_JAVA_DIR" ]; then
+    find "$NEOFORGE_JAVA_DIR" -type f 2>/dev/null | read || rm -rf "$NEOFORGE_JAVA_DIR"
 fi
 
 # Create neoforge.mods.toml

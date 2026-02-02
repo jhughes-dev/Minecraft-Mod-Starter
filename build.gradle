@@ -46,4 +46,11 @@ allprojects {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+
+    if (rootProject.hasProperty("mod_language") && rootProject.mod_language == "kotlin") {
+        apply plugin: "org.jetbrains.kotlin.jvm"
+        kotlin {
+            jvmToolchain(21)
+        }
+    }
 }

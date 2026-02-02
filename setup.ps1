@@ -8,6 +8,8 @@ param(
     [string]$Author,
     [string]$Description,
     [string]$MinecraftVersion,
+    [ValidateSet("java", "kotlin")]
+    [string]$Language,
     [switch]$Force
 )
 
@@ -115,6 +117,15 @@ if ([string]::IsNullOrWhiteSpace($Author)) {
 if ([string]::IsNullOrWhiteSpace($Description)) {
     $Description = Get-Input -Prompt "Mod description" -Default "A Minecraft mod"
 }
+if ([string]::IsNullOrWhiteSpace($Language)) {
+    $Language = Get-Input -Prompt "Language (java/kotlin)" -Default "java"
+}
+$Language = $Language.ToLower()
+if ($Language -ne "java" -and $Language -ne "kotlin") {
+    Write-Host "Error: Language must be 'java' or 'kotlin'" -ForegroundColor Red
+    exit 1
+}
+$UseKotlin = $Language -eq "kotlin"
 
 # Validate mod ID
 if ($ModId -notmatch '^[a-z][a-z0-9_]*$') {
@@ -160,6 +171,7 @@ Write-Host "  Mod Name:    $ModName"
 Write-Host "  Package:     $Package"
 Write-Host "  Author:      $Author"
 Write-Host "  Description: $Description"
+Write-Host "  Language:    $Language"
 Write-Host ""
 Write-Host "Versions:" -ForegroundColor Yellow
 Write-Host "  Minecraft:   $mcVersion"
@@ -186,19 +198,25 @@ $ClassNameMod = $ClassName + "Mod"
 $packagePath = Convert-ToPackagePath $Package
 
 # --- Paths ---
-$commonJavaDir = Join-Path $scriptDir "common/src/main/java"
+$srcLang = if ($UseKotlin) { "kotlin" } else { "java" }
+$commonSrcDir = Join-Path $scriptDir "common/src/main/$srcLang"
 $commonResourcesDir = Join-Path $scriptDir "common/src/main/resources"
-$fabricJavaDir = Join-Path $scriptDir "fabric/src/main/java"
+$fabricSrcDir = Join-Path $scriptDir "fabric/src/main/$srcLang"
 $fabricResourcesDir = Join-Path $scriptDir "fabric/src/main/resources"
-$neoforgeJavaDir = Join-Path $scriptDir "neoforge/src/main/java"
+$neoforgeSrcDir = Join-Path $scriptDir "neoforge/src/main/$srcLang"
 $neoforgeResourcesDir = Join-Path $scriptDir "neoforge/src/main/resources"
 
+# Old paths (always in java dir, from template defaults)
+$commonJavaDir = Join-Path $scriptDir "common/src/main/java"
+$fabricJavaDir = Join-Path $scriptDir "fabric/src/main/java"
+$neoforgeJavaDir = Join-Path $scriptDir "neoforge/src/main/java"
+
 $oldCommonPackagePath = Join-Path $commonJavaDir "io/github/yourname/modid"
-$newCommonPackagePath = Join-Path $commonJavaDir $packagePath
+$newCommonPackagePath = Join-Path $commonSrcDir $packagePath
 $oldFabricPackagePath = Join-Path $fabricJavaDir "io/github/yourname/modid/fabric"
-$newFabricPackagePath = Join-Path $fabricJavaDir "$packagePath/fabric"
+$newFabricPackagePath = Join-Path $fabricSrcDir "$packagePath/fabric"
 $oldNeoforgePackagePath = Join-Path $neoforgeJavaDir "io/github/yourname/modid/neoforge"
-$newNeoforgePackagePath = Join-Path $neoforgeJavaDir "$packagePath/neoforge"
+$newNeoforgePackagePath = Join-Path $neoforgeSrcDir "$packagePath/neoforge"
 
 # 1. Update gradle.properties
 Write-Host "  Updating gradle.properties..." -ForegroundColor Gray
@@ -207,6 +225,10 @@ $gradleProps = $gradleProps -replace 'minecraft_version=.*', "minecraft_version=
 $gradleProps = $gradleProps -replace 'fabric_loader_version=.*', "fabric_loader_version=$loaderVersion"
 $gradleProps = $gradleProps -replace '# fabric_api_version=.*', "fabric_api_version=$fabricVersion"
 $gradleProps = $gradleProps -replace 'neoforge_version=.*', "neoforge_version=$neoForgeVersion"
+$gradleProps = $gradleProps -replace '# mod_language=.*', "mod_language=$Language"
+if ($UseKotlin) {
+    $gradleProps = $gradleProps -replace '# kotlin_version=(.*)', 'kotlin_version=$1'
+}
 $gradleProps = $gradleProps -replace 'maven_group=.*', "maven_group=$Package"
 $gradleProps = $gradleProps -replace 'archives_base_name=.*', "archives_base_name=$ModId"
 $gradleProps = $gradleProps -replace 'mod_name=.*', "mod_name=$ModName"
@@ -228,7 +250,24 @@ Set-Content (Join-Path $scriptDir "fabric/build.gradle") $fabricBuildGradle -NoN
 Write-Host "  Creating common module source..." -ForegroundColor Gray
 $null = New-Item -ItemType Directory -Path $newCommonPackagePath -Force
 
-$commonClass = @"
+if ($UseKotlin) {
+    $commonClass = @"
+package $Package
+
+import org.slf4j.LoggerFactory
+
+object $ClassNameMod {
+    const val MOD_ID = "$ModId"
+    val LOGGER = LoggerFactory.getLogger(MOD_ID)
+
+    fun init() {
+        LOGGER.info("Initializing $ModName")
+    }
+}
+"@
+    Set-Content (Join-Path $newCommonPackagePath "$ClassNameMod.kt") $commonClass
+} else {
+    $commonClass = @"
 package $Package;
 
 import org.slf4j.Logger;
@@ -243,7 +282,8 @@ public class $ClassNameMod {
     }
 }
 "@
-Set-Content (Join-Path $newCommonPackagePath "$ClassNameMod.java") $commonClass
+    Set-Content (Join-Path $newCommonPackagePath "$ClassNameMod.java") $commonClass
+}
 
 # Remove old common source
 if ((Test-Path $oldCommonPackagePath) -and ($oldCommonPackagePath -ne $newCommonPackagePath)) {
@@ -255,6 +295,11 @@ if ((Test-Path $oldCommonPackagePath) -and ($oldCommonPackagePath -ne $newCommon
             $parentPath = Split-Path $parentPath -Parent
         } else { break }
     }
+}
+# If using Kotlin, also remove the default java source dir if empty
+if ($UseKotlin -and (Test-Path $commonJavaDir)) {
+    $remaining = Get-ChildItem $commonJavaDir -Recurse -File -ErrorAction SilentlyContinue
+    if (-not $remaining) { Remove-Item -Recurse -Force $commonJavaDir }
 }
 
 # Move common assets
@@ -269,7 +314,22 @@ Write-Host "  Creating Fabric module source..." -ForegroundColor Gray
 $null = New-Item -ItemType Directory -Path $newFabricPackagePath -Force
 $null = New-Item -ItemType Directory -Path (Join-Path (Split-Path $newFabricPackagePath -Parent) "mixin") -Force
 
-$fabricClass = @"
+if ($UseKotlin) {
+    $fabricClass = @"
+package $Package.fabric
+
+import $Package.$ClassNameMod
+import net.fabricmc.api.ModInitializer
+
+class ${ClassNameMod}Fabric : ModInitializer {
+    override fun onInitialize() {
+        ${ClassNameMod}.init()
+    }
+}
+"@
+    Set-Content (Join-Path $newFabricPackagePath "${ClassNameMod}Fabric.kt") $fabricClass
+} else {
+    $fabricClass = @"
 package $Package.fabric;
 
 import $Package.$ClassNameMod;
@@ -282,7 +342,8 @@ public class ${ClassNameMod}Fabric implements ModInitializer {
     }
 }
 "@
-Set-Content (Join-Path $newFabricPackagePath "${ClassNameMod}Fabric.java") $fabricClass
+    Set-Content (Join-Path $newFabricPackagePath "${ClassNameMod}Fabric.java") $fabricClass
+}
 
 # Create mixin package-info for fabric
 Set-Content (Join-Path (Split-Path $newFabricPackagePath -Parent) "mixin/package-info.java") "/** Mixin classes for $ModName */`npackage $Package.mixin;"
@@ -297,6 +358,12 @@ if ((Test-Path $oldFabricPackagePath) -and ($oldFabricPackagePath -ne $newFabric
             $parentPath = Split-Path $parentPath -Parent
         } else { break }
     }
+}
+# If using Kotlin, clean up default java source dir (keep mixin dir which stays in java)
+if ($UseKotlin -and (Test-Path $fabricJavaDir)) {
+    # Remove everything except mixin-related files
+    $oldJavaPackage = Join-Path $fabricJavaDir "io/github/yourname/modid"
+    if (Test-Path $oldJavaPackage) { Remove-Item -Recurse -Force $oldJavaPackage }
 }
 
 # Create fabric.mod.json
@@ -350,7 +417,24 @@ Set-Content (Join-Path $fabricResourcesDir "$ModId.mixins.json") $mixinConfig
 Write-Host "  Creating NeoForge module source..." -ForegroundColor Gray
 $null = New-Item -ItemType Directory -Path $newNeoforgePackagePath -Force
 
-$neoforgeClass = @"
+if ($UseKotlin) {
+    $neoforgeClass = @"
+package $Package.neoforge
+
+import $Package.$ClassNameMod
+import net.neoforged.bus.api.IEventBus
+import net.neoforged.fml.common.Mod
+
+@Mod(${ClassNameMod}.MOD_ID)
+class ${ClassNameMod}NeoForge(modEventBus: IEventBus) {
+    init {
+        ${ClassNameMod}.init()
+    }
+}
+"@
+    Set-Content (Join-Path $newNeoforgePackagePath "${ClassNameMod}NeoForge.kt") $neoforgeClass
+} else {
+    $neoforgeClass = @"
 package $Package.neoforge;
 
 import $Package.$ClassNameMod;
@@ -364,7 +448,8 @@ public class ${ClassNameMod}NeoForge {
     }
 }
 "@
-Set-Content (Join-Path $newNeoforgePackagePath "${ClassNameMod}NeoForge.java") $neoforgeClass
+    Set-Content (Join-Path $newNeoforgePackagePath "${ClassNameMod}NeoForge.java") $neoforgeClass
+}
 
 # Remove old neoforge source
 if ((Test-Path $oldNeoforgePackagePath) -and ($oldNeoforgePackagePath -ne $newNeoforgePackagePath)) {
@@ -376,6 +461,10 @@ if ((Test-Path $oldNeoforgePackagePath) -and ($oldNeoforgePackagePath -ne $newNe
             $parentPath = Split-Path $parentPath -Parent
         } else { break }
     }
+}
+if ($UseKotlin -and (Test-Path $neoforgeJavaDir)) {
+    $remaining = Get-ChildItem $neoforgeJavaDir -Recurse -File -ErrorAction SilentlyContinue
+    if (-not $remaining) { Remove-Item -Recurse -Force $neoforgeJavaDir }
 }
 
 # Create neoforge.mods.toml
