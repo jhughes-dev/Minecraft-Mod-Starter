@@ -113,7 +113,7 @@ To add a mixin, create a class in your `mixin` package under `fabric/src/main/ja
 
 ## Fabric API
 
-Fabric API is enabled by default after running the setup script.
+The setup script automatically enables Fabric API by uncommenting the dependency in `fabric/build.gradle` and `gradle.properties`.
 
 If setting up manually, uncomment this line in `fabric/build.gradle`:
 
@@ -122,6 +122,12 @@ modApi "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_api_version}"
 ```
 
 And uncomment `fabric_api_version` in `gradle.properties`.
+
+## Kotlin Support
+
+The setup script can generate Kotlin source files instead of Java. Choose `kotlin` when prompted for language (or pass `-Language kotlin` / `--language kotlin`).
+
+This enables the `org.jetbrains.kotlin.jvm` plugin and creates Kotlin entry points in each module. Mixin classes must still be written in Java.
 
 ## Resources
 

@@ -8,6 +8,6 @@ public class ExampleMod {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     public static void init() {
-        LOGGER.info("Hello Fabric world!");
+        LOGGER.info("Initializing {}!", MOD_ID);
     }
 }

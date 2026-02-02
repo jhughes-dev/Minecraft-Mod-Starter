@@ -6,7 +6,7 @@ license = "MIT"
 modId = "modid"
 version = "${version}"
 displayName = "Example Mod"
-description = "A Fabric mod for Minecraft"
+description = "A Minecraft mod"
 authors = "Your Name"
 logoFile = "assets/modid/icon.png"
 

@@ -50,6 +50,14 @@ to_pascal_case() {
     echo "$1" | sed -r 's/(^|_)([a-z])/\U\2/g'
 }
 
+escape_json_string() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' | tr -d '\r'
+}
+
+escape_toml_string() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' | tr -d '\r'
+}
+
 # --- Version Auto-Detection ---
 
 fetch_latest_mc_version() {
@@ -312,7 +320,7 @@ if [ -d "$OLD_COMMON_PACKAGE" ] && [ "$OLD_COMMON_PACKAGE" != "$NEW_COMMON_PACKA
     clean_empty_parents "$OLD_COMMON_PACKAGE" "$COMMON_JAVA_DIR"
 fi
 if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$COMMON_JAVA_DIR" ]; then
-    find "$COMMON_JAVA_DIR" -type f 2>/dev/null | read || rm -rf "$COMMON_JAVA_DIR"
+    if [ -z "$(find "$COMMON_JAVA_DIR" -type f 2>/dev/null)" ]; then rm -rf "$COMMON_JAVA_DIR"; fi
 fi
 
 # Move common assets
@@ -370,15 +378,23 @@ if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$OLD_FABRIC_PACKAGE" ]; then
     rm -rf "$OLD_FABRIC_PACKAGE" 2>/dev/null || true
 fi
 
+# Escape user input for JSON/TOML
+SAFE_MOD_NAME=$(escape_json_string "$MOD_NAME")
+SAFE_DESCRIPTION=$(escape_json_string "$DESCRIPTION")
+SAFE_AUTHOR=$(escape_json_string "$AUTHOR")
+SAFE_MOD_NAME_TOML=$(escape_toml_string "$MOD_NAME")
+SAFE_DESCRIPTION_TOML=$(escape_toml_string "$DESCRIPTION")
+SAFE_AUTHOR_TOML=$(escape_toml_string "$AUTHOR")
+
 # Create fabric.mod.json
 cat > "$FABRIC_RESOURCES_DIR/fabric.mod.json" << EOF
 {
   "schemaVersion": 1,
   "id": "$MOD_ID",
   "version": "\${version}",
-  "name": "$MOD_NAME",
-  "description": "$DESCRIPTION",
-  "authors": ["$AUTHOR"],
+  "name": "$SAFE_MOD_NAME",
+  "description": "$SAFE_DESCRIPTION",
+  "authors": ["$SAFE_AUTHOR"],
   "contact": {
     "homepage": "https://github.com/yourname/$MOD_ID",
     "sources": "https://github.com/yourname/$MOD_ID"
@@ -457,7 +473,7 @@ if [ -d "$OLD_NEOFORGE_PACKAGE" ] && [ "$OLD_NEOFORGE_PACKAGE" != "$NEW_NEOFORGE
     clean_empty_parents "$OLD_NEOFORGE_PACKAGE" "$NEOFORGE_JAVA_DIR"
 fi
 if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$NEOFORGE_JAVA_DIR" ]; then
-    find "$NEOFORGE_JAVA_DIR" -type f 2>/dev/null | read || rm -rf "$NEOFORGE_JAVA_DIR"
+    if [ -z "$(find "$NEOFORGE_JAVA_DIR" -type f 2>/dev/null)" ]; then rm -rf "$NEOFORGE_JAVA_DIR"; fi
 fi
 
 # Create neoforge.mods.toml
@@ -470,9 +486,9 @@ license = "MIT"
 [[mods]]
 modId = "$MOD_ID"
 version = "\${version}"
-displayName = "$MOD_NAME"
-description = "$DESCRIPTION"
-authors = "$AUTHOR"
+displayName = "$SAFE_MOD_NAME_TOML"
+description = "$SAFE_DESCRIPTION_TOML"
+authors = "$SAFE_AUTHOR_TOML"
 logoFile = "assets/$MOD_ID/icon.png"
 
 [[dependencies.$MOD_ID]]

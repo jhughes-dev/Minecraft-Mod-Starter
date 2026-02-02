@@ -36,6 +36,16 @@ function Convert-ToPackagePath {
     return $Package -replace '\.', '/'
 }
 
+function ConvertTo-JsonSafeString {
+    param([string]$Value)
+    return $Value -replace '\\', '\\' -replace '"', '\"' -replace "`n", '\n' -replace "`r", '' -replace "`t", '\t'
+}
+
+function ConvertTo-TomlSafeString {
+    param([string]$Value)
+    return $Value -replace '\\', '\\' -replace '"', '\"' -replace "`n", '\n' -replace "`r", '' -replace "`t", '\t'
+}
+
 # --- Version Auto-Detection ---
 
 function Get-LatestMinecraftVersion {
@@ -227,7 +237,7 @@ $gradleProps = $gradleProps -replace '# fabric_api_version=.*', "fabric_api_vers
 $gradleProps = $gradleProps -replace 'neoforge_version=.*', "neoforge_version=$neoForgeVersion"
 $gradleProps = $gradleProps -replace '# mod_language=.*', "mod_language=$Language"
 if ($UseKotlin) {
-    $gradleProps = $gradleProps -replace '# kotlin_version=(.*)', 'kotlin_version=$1'
+    $gradleProps = $gradleProps -replace '# kotlin_version=(.*)', 'kotlin_version=`$1'
 }
 $gradleProps = $gradleProps -replace 'maven_group=.*', "maven_group=$Package"
 $gradleProps = $gradleProps -replace 'archives_base_name=.*', "archives_base_name=$ModId"
@@ -366,15 +376,23 @@ if ($UseKotlin -and (Test-Path $fabricJavaDir)) {
     if (Test-Path $oldJavaPackage) { Remove-Item -Recurse -Force $oldJavaPackage }
 }
 
+# Escape user input for JSON/TOML
+$SafeDescription = ConvertTo-JsonSafeString $Description
+$SafeAuthor = ConvertTo-JsonSafeString $Author
+$SafeModName = ConvertTo-JsonSafeString $ModName
+$SafeDescriptionToml = ConvertTo-TomlSafeString $Description
+$SafeAuthorToml = ConvertTo-TomlSafeString $Author
+$SafeModNameToml = ConvertTo-TomlSafeString $ModName
+
 # Create fabric.mod.json
 $fabricJson = @"
 {
   "schemaVersion": 1,
   "id": "$ModId",
   "version": "`${version}",
-  "name": "$ModName",
-  "description": "$Description",
-  "authors": ["$Author"],
+  "name": "$SafeModName",
+  "description": "$SafeDescription",
+  "authors": ["$SafeAuthor"],
   "contact": {
     "homepage": "https://github.com/yourname/$ModId",
     "sources": "https://github.com/yourname/$ModId"
@@ -477,9 +495,9 @@ license = "MIT"
 [[mods]]
 modId = "$ModId"
 version = "`${version}"
-displayName = "$ModName"
-description = "$Description"
-authors = "$Author"
+displayName = "$SafeModNameToml"
+description = "$SafeDescriptionToml"
+authors = "$SafeAuthorToml"
 logoFile = "assets/$ModId/icon.png"
 
 [[dependencies.$ModId]]
