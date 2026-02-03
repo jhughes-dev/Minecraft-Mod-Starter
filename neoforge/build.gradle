@@ -2,6 +2,10 @@ plugins {
     id "com.github.johnrengelman.shadow" version "8.1.1"
 }
 
+base {
+    archivesName = "${rootProject.archives_base_name}-neoforge"
+}
+
 architectury {
     platformSetupLoomIde()
     neoForge()
