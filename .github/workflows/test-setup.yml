@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Save test artifacts before setup cleanup
+        run: cp -r test /tmp/test-artifacts
+
       - name: Run setup (bash)
         if: matrix.shell == 'bash'
         run: |
@@ -53,14 +56,14 @@ jobs:
 
       - name: Normalize versions in generated metadata
         run: |
-          chmod +x test/normalize-versions.sh
-          bash test/normalize-versions.sh fabric/src/main/resources/fabric.mod.json
-          bash test/normalize-versions.sh neoforge/src/main/resources/META-INF/neoforge.mods.toml
+          chmod +x /tmp/test-artifacts/normalize-versions.sh
+          bash /tmp/test-artifacts/normalize-versions.sh fabric/src/main/resources/fabric.mod.json
+          bash /tmp/test-artifacts/normalize-versions.sh neoforge/src/main/resources/META-INF/neoforge.mods.toml
 
       - name: Diff against golden files
         run: |
           LANG="${{ matrix.language }}"
-          GOLDEN="test/golden/$LANG"
+          GOLDEN="/tmp/test-artifacts/golden/$LANG"
           FAIL=0
 
           diff_file() {
