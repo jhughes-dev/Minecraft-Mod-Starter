@@ -143,6 +143,13 @@ if ($ModId -notmatch '^[a-z][a-z0-9_]*$') {
     exit 1
 }
 
+# Validate package name (must be a valid Java package name)
+if ($Package -notmatch '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$') {
+    Write-Host "Error: Package must be a valid Java package name (e.g., 'io.github.username.mymod')" -ForegroundColor Red
+    Write-Host "  Each segment must start with a lowercase letter and contain only a-z, 0-9, _" -ForegroundColor Red
+    exit 1
+}
+
 # Fetch latest versions
 Write-Host "Fetching latest versions..." -ForegroundColor Cyan
 
@@ -258,6 +265,24 @@ Set-Content (Join-Path $scriptDir "fabric/build.gradle") $fabricBuildGradle -NoN
 
 # 5. Create common module source
 Write-Host "  Creating common module source..." -ForegroundColor Gray
+
+# Remove old template source first
+if (Test-Path $oldCommonPackagePath) {
+    Remove-Item -Recurse -Force $oldCommonPackagePath
+    $parentPath = Split-Path $oldCommonPackagePath -Parent
+    while ($parentPath -ne $commonJavaDir) {
+        if ((Get-ChildItem $parentPath -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+            Remove-Item $parentPath -Force
+            $parentPath = Split-Path $parentPath -Parent
+        } else { break }
+    }
+}
+# If using Kotlin, also remove the default java source dir if empty
+if ($UseKotlin -and (Test-Path $commonJavaDir)) {
+    $remaining = Get-ChildItem $commonJavaDir -Recurse -File -ErrorAction SilentlyContinue
+    if (-not $remaining) { Remove-Item -Recurse -Force $commonJavaDir }
+}
+
 $null = New-Item -ItemType Directory -Path $newCommonPackagePath -Force
 
 if ($UseKotlin) {
@@ -295,23 +320,6 @@ public class $ClassNameMod {
     Set-Content (Join-Path $newCommonPackagePath "$ClassNameMod.java") $commonClass
 }
 
-# Remove old common source
-if ((Test-Path $oldCommonPackagePath) -and ($oldCommonPackagePath -ne $newCommonPackagePath)) {
-    Remove-Item -Recurse -Force $oldCommonPackagePath
-    $parentPath = Split-Path $oldCommonPackagePath -Parent
-    while ($parentPath -ne $commonJavaDir) {
-        if ((Get-ChildItem $parentPath -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
-            Remove-Item $parentPath -Force
-            $parentPath = Split-Path $parentPath -Parent
-        } else { break }
-    }
-}
-# If using Kotlin, also remove the default java source dir if empty
-if ($UseKotlin -and (Test-Path $commonJavaDir)) {
-    $remaining = Get-ChildItem $commonJavaDir -Recurse -File -ErrorAction SilentlyContinue
-    if (-not $remaining) { Remove-Item -Recurse -Force $commonJavaDir }
-}
-
 # Move common assets
 $oldCommonAssets = Join-Path $commonResourcesDir "assets/modid"
 $newCommonAssets = Join-Path $commonResourcesDir "assets/$ModId"
@@ -321,6 +329,24 @@ if ((Test-Path $oldCommonAssets) -and ($oldCommonAssets -ne $newCommonAssets)) {
 
 # 6. Create Fabric module source
 Write-Host "  Creating Fabric module source..." -ForegroundColor Gray
+
+# Remove old template source first
+if (Test-Path $oldFabricPackagePath) {
+    Remove-Item -Recurse -Force $oldFabricPackagePath
+    $parentPath = Split-Path $oldFabricPackagePath -Parent
+    while ($parentPath -ne $fabricJavaDir) {
+        if ((Get-ChildItem $parentPath -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+            Remove-Item $parentPath -Force
+            $parentPath = Split-Path $parentPath -Parent
+        } else { break }
+    }
+}
+# If using Kotlin, clean up default java source dir (keep mixin dir which stays in java)
+if ($UseKotlin -and (Test-Path $fabricJavaDir)) {
+    $oldJavaPackage = Join-Path $fabricJavaDir "io/github/yourname/modid"
+    if (Test-Path $oldJavaPackage) { Remove-Item -Recurse -Force $oldJavaPackage }
+}
+
 $null = New-Item -ItemType Directory -Path $newFabricPackagePath -Force
 
 if ($UseKotlin) {
@@ -358,24 +384,6 @@ public class ${ClassNameMod}Fabric implements ModInitializer {
 $mixinDir = Join-Path $fabricJavaDir "$packagePath/mixin"
 $null = New-Item -ItemType Directory -Path $mixinDir -Force
 Set-Content (Join-Path $mixinDir "package-info.java") "/** Mixin classes for $ModName */`npackage $Package.mixin;"
-
-# Remove old fabric source
-if ((Test-Path $oldFabricPackagePath) -and ($oldFabricPackagePath -ne $newFabricPackagePath)) {
-    Remove-Item -Recurse -Force $oldFabricPackagePath
-    $parentPath = Split-Path $oldFabricPackagePath -Parent
-    while ($parentPath -ne $fabricJavaDir) {
-        if ((Get-ChildItem $parentPath -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
-            Remove-Item $parentPath -Force
-            $parentPath = Split-Path $parentPath -Parent
-        } else { break }
-    }
-}
-# If using Kotlin, clean up default java source dir (keep mixin dir which stays in java)
-if ($UseKotlin -and (Test-Path $fabricJavaDir)) {
-    # Remove everything except mixin-related files
-    $oldJavaPackage = Join-Path $fabricJavaDir "io/github/yourname/modid"
-    if (Test-Path $oldJavaPackage) { Remove-Item -Recurse -Force $oldJavaPackage }
-}
 
 # Escape user input for JSON/TOML
 $SafeDescription = ConvertTo-JsonSafeString $Description
@@ -434,6 +442,23 @@ Set-Content (Join-Path $fabricResourcesDir "$ModId.mixins.json") $mixinConfig
 
 # 7. Create NeoForge module source
 Write-Host "  Creating NeoForge module source..." -ForegroundColor Gray
+
+# Remove old template source first
+if (Test-Path $oldNeoforgePackagePath) {
+    Remove-Item -Recurse -Force $oldNeoforgePackagePath
+    $parentPath = Split-Path $oldNeoforgePackagePath -Parent
+    while ($parentPath -ne $neoforgeJavaDir) {
+        if ((Get-ChildItem $parentPath -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+            Remove-Item $parentPath -Force
+            $parentPath = Split-Path $parentPath -Parent
+        } else { break }
+    }
+}
+if ($UseKotlin -and (Test-Path $neoforgeJavaDir)) {
+    $remaining = Get-ChildItem $neoforgeJavaDir -Recurse -File -ErrorAction SilentlyContinue
+    if (-not $remaining) { Remove-Item -Recurse -Force $neoforgeJavaDir }
+}
+
 $null = New-Item -ItemType Directory -Path $newNeoforgePackagePath -Force
 
 if ($UseKotlin) {
@@ -468,22 +493,6 @@ public class ${ClassNameMod}NeoForge {
 }
 "@
     Set-Content (Join-Path $newNeoforgePackagePath "${ClassNameMod}NeoForge.java") $neoforgeClass
-}
-
-# Remove old neoforge source
-if ((Test-Path $oldNeoforgePackagePath) -and ($oldNeoforgePackagePath -ne $newNeoforgePackagePath)) {
-    Remove-Item -Recurse -Force $oldNeoforgePackagePath
-    $parentPath = Split-Path $oldNeoforgePackagePath -Parent
-    while ($parentPath -ne $neoforgeJavaDir) {
-        if ((Get-ChildItem $parentPath -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
-            Remove-Item $parentPath -Force
-            $parentPath = Split-Path $parentPath -Parent
-        } else { break }
-    }
-}
-if ($UseKotlin -and (Test-Path $neoforgeJavaDir)) {
-    $remaining = Get-ChildItem $neoforgeJavaDir -Recurse -File -ErrorAction SilentlyContinue
-    if (-not $remaining) { Remove-Item -Recurse -Force $neoforgeJavaDir }
 }
 
 # Create neoforge.mods.toml
@@ -523,6 +532,14 @@ $license = Get-Content (Join-Path $scriptDir "LICENSE") -Raw
 $license = $license -replace 'Copyright \(c\) \d+ Your Name', "Copyright (c) $(Get-Date -Format yyyy) $Author"
 Set-Content (Join-Path $scriptDir "LICENSE") $license -NoNewline
 
+# 9. Clean up setup files (tests, CI, setup scripts)
+Write-Host "  Cleaning up setup files..." -ForegroundColor Gray
+$cleanupPaths = @("test", ".github", "CLAUDE.md", "setup.sh")
+foreach ($p in $cleanupPaths) {
+    $fullPath = Join-Path $scriptDir $p
+    if (Test-Path $fullPath) { Remove-Item -Recurse -Force $fullPath }
+}
+
 Write-Host ""
 Write-Host "Setup complete!" -ForegroundColor Green
 Write-Host ""
@@ -537,7 +554,7 @@ Write-Host "  fabric/ - Fabric-specific code"
 Write-Host "  neoforge/ - NeoForge-specific code"
 Write-Host ""
 Write-Host "Build outputs:" -ForegroundColor Yellow
-Write-Host "  fabric/build/libs/$ModId-*.jar"
-Write-Host "  neoforge/build/libs/$ModId-*.jar"
+Write-Host "  fabric/build/libs/$ModId-fabric-*.jar"
+Write-Host "  neoforge/build/libs/$ModId-neoforge-*.jar"
 Write-Host ""
-Write-Host "Optional: Delete this setup script after use" -ForegroundColor Gray
+Write-Host "You can now delete this setup script: Remove-Item setup.ps1" -ForegroundColor Gray

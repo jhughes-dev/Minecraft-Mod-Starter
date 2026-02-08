@@ -151,6 +151,13 @@ if ! [[ "$MOD_ID" =~ ^[a-z][a-z0-9_]*$ ]]; then
     exit 1
 fi
 
+# Validate package name (must be a valid Java package name)
+if ! [[ "$PACKAGE" =~ ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$ ]]; then
+    echo -e "${RED}Error: Package must be a valid Java package name (e.g., 'io.github.username.mymod')${NC}"
+    echo -e "${RED}  Each segment must start with a lowercase letter and contain only a-z, 0-9, _${NC}"
+    exit 1
+fi
+
 # Fetch latest versions
 echo -e "${CYAN}Fetching latest versions...${NC}"
 
@@ -279,6 +286,16 @@ rm -f "$SCRIPT_DIR/fabric/build.gradle.bak"
 
 # 5. Create common module source
 echo -e "${GRAY}  Creating common module source...${NC}"
+
+# Remove old template source first
+if [ -d "$OLD_COMMON_PACKAGE" ]; then
+    rm -rf "$OLD_COMMON_PACKAGE"
+    clean_empty_parents "$OLD_COMMON_PACKAGE" "$COMMON_JAVA_DIR"
+fi
+if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$COMMON_JAVA_DIR" ]; then
+    if [ -z "$(find "$COMMON_JAVA_DIR" -type f 2>/dev/null)" ]; then rm -rf "$COMMON_JAVA_DIR"; fi
+fi
+
 mkdir -p "$NEW_COMMON_PACKAGE"
 
 if [[ "$USE_KOTLIN" == "true" ]]; then
@@ -314,15 +331,6 @@ public class $CLASS_NAME {
 EOF
 fi
 
-# Remove old common source
-if [ -d "$OLD_COMMON_PACKAGE" ] && [ "$OLD_COMMON_PACKAGE" != "$NEW_COMMON_PACKAGE" ]; then
-    rm -rf "$OLD_COMMON_PACKAGE"
-    clean_empty_parents "$OLD_COMMON_PACKAGE" "$COMMON_JAVA_DIR"
-fi
-if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$COMMON_JAVA_DIR" ]; then
-    if [ -z "$(find "$COMMON_JAVA_DIR" -type f 2>/dev/null)" ]; then rm -rf "$COMMON_JAVA_DIR"; fi
-fi
-
 # Move common assets
 OLD_COMMON_ASSETS="$COMMON_RESOURCES_DIR/assets/modid"
 NEW_COMMON_ASSETS="$COMMON_RESOURCES_DIR/assets/$MOD_ID"
@@ -332,6 +340,18 @@ fi
 
 # 6. Create Fabric module source
 echo -e "${GRAY}  Creating Fabric module source...${NC}"
+
+# Remove old template source first
+if [ -d "$OLD_FABRIC_PACKAGE" ]; then
+    rm -rf "$OLD_FABRIC_PACKAGE"
+    clean_empty_parents "$OLD_FABRIC_PACKAGE" "$FABRIC_JAVA_DIR"
+fi
+if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$FABRIC_JAVA_DIR" ]; then
+    # Remove old java package tree (keep mixin dir which gets recreated below)
+    OLD_JAVA_PKG="$FABRIC_JAVA_DIR/io/github/yourname/modid"
+    if [ -d "$OLD_JAVA_PKG" ]; then rm -rf "$OLD_JAVA_PKG"; fi
+fi
+
 mkdir -p "$NEW_FABRIC_PACKAGE"
 # Mixin dir always goes in java source tree (mixins must be Java even when using Kotlin)
 FABRIC_MIXIN_DIR="$FABRIC_JAVA_DIR/$PACKAGE_PATH/mixin"
@@ -370,15 +390,6 @@ cat > "$FABRIC_MIXIN_DIR/package-info.java" << EOF
 /** Mixin classes for $MOD_NAME */
 package $PACKAGE.mixin;
 EOF
-
-# Remove old fabric source
-if [ -d "$OLD_FABRIC_PACKAGE" ] && [ "$OLD_FABRIC_PACKAGE" != "$NEW_FABRIC_PACKAGE" ]; then
-    rm -rf "$OLD_FABRIC_PACKAGE"
-    clean_empty_parents "$OLD_FABRIC_PACKAGE" "$FABRIC_JAVA_DIR"
-fi
-if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$OLD_FABRIC_PACKAGE" ]; then
-    rm -rf "$OLD_FABRIC_PACKAGE" 2>/dev/null || true
-fi
 
 # Escape user input for JSON/TOML
 SAFE_MOD_NAME=$(escape_json_string "$MOD_NAME")
@@ -435,6 +446,16 @@ EOF
 
 # 7. Create NeoForge module source
 echo -e "${GRAY}  Creating NeoForge module source...${NC}"
+
+# Remove old template source first
+if [ -d "$OLD_NEOFORGE_PACKAGE" ]; then
+    rm -rf "$OLD_NEOFORGE_PACKAGE"
+    clean_empty_parents "$OLD_NEOFORGE_PACKAGE" "$NEOFORGE_JAVA_DIR"
+fi
+if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$NEOFORGE_JAVA_DIR" ]; then
+    if [ -z "$(find "$NEOFORGE_JAVA_DIR" -type f 2>/dev/null)" ]; then rm -rf "$NEOFORGE_JAVA_DIR"; fi
+fi
+
 mkdir -p "$NEW_NEOFORGE_PACKAGE"
 
 if [[ "$USE_KOTLIN" == "true" ]]; then
@@ -467,15 +488,6 @@ public class ${CLASS_NAME}NeoForge {
     }
 }
 EOF
-fi
-
-# Remove old neoforge source
-if [ -d "$OLD_NEOFORGE_PACKAGE" ] && [ "$OLD_NEOFORGE_PACKAGE" != "$NEW_NEOFORGE_PACKAGE" ]; then
-    rm -rf "$OLD_NEOFORGE_PACKAGE"
-    clean_empty_parents "$OLD_NEOFORGE_PACKAGE" "$NEOFORGE_JAVA_DIR"
-fi
-if [[ "$USE_KOTLIN" == "true" ]] && [ -d "$NEOFORGE_JAVA_DIR" ]; then
-    if [ -z "$(find "$NEOFORGE_JAVA_DIR" -type f 2>/dev/null)" ]; then rm -rf "$NEOFORGE_JAVA_DIR"; fi
 fi
 
 # Create neoforge.mods.toml
@@ -514,6 +526,10 @@ YEAR=$(date +%Y)
 sed -i.bak "s/Copyright (c) [0-9]* Your Name/Copyright (c) $YEAR $AUTHOR/" "$SCRIPT_DIR/LICENSE"
 rm -f "$SCRIPT_DIR/LICENSE.bak"
 
+# 9. Clean up setup files (tests, CI, setup scripts)
+echo -e "${GRAY}  Cleaning up setup files...${NC}"
+rm -rf "$SCRIPT_DIR/test" "$SCRIPT_DIR/.github" "$SCRIPT_DIR/CLAUDE.md" "$SCRIPT_DIR/setup.ps1"
+
 echo ""
 echo -e "${GREEN}Setup complete!${NC}"
 echo ""
@@ -528,7 +544,7 @@ echo "  fabric/   - Fabric-specific code"
 echo "  neoforge/ - NeoForge-specific code"
 echo ""
 echo -e "${YELLOW}Build outputs:${NC}"
-echo "  fabric/build/libs/$MOD_ID-*.jar"
-echo "  neoforge/build/libs/$MOD_ID-*.jar"
+echo "  fabric/build/libs/$MOD_ID-fabric-*.jar"
+echo "  neoforge/build/libs/$MOD_ID-neoforge-*.jar"
 echo ""
-echo -e "${GRAY}Optional: Delete this setup script after use${NC}"
+echo -e "${GRAY}You can now delete this setup script: rm setup.sh${NC}"
