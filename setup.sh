@@ -6,12 +6,14 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FORCE=false
+ENABLE_CI=false
 MC_VERSION_OVERRIDE=""
 
 # Parse flags
 while [[ "$1" == -* ]]; do
     case "$1" in
         -f|--force) FORCE=true; shift ;;
+        --enable-ci) ENABLE_CI=true; shift ;;
         --mc-version) MC_VERSION_OVERRIDE="$2"; shift 2 ;;
         *) shift ;;
     esac
@@ -145,6 +147,13 @@ fi
 USE_KOTLIN=false
 [[ "$LANGUAGE" == "kotlin" ]] && USE_KOTLIN=true
 
+if [[ "$ENABLE_CI" != "true" ]]; then
+    read -r -p "Enable GitHub Actions CI build workflow? (y/N): " ci_choice || ci_choice=""
+    if [[ "$ci_choice" == "y" || "$ci_choice" == "Y" ]]; then
+        ENABLE_CI=true
+    fi
+fi
+
 # Validate mod ID
 if ! [[ "$MOD_ID" =~ ^[a-z][a-z0-9_]*$ ]]; then
     echo -e "${RED}Error: Mod ID must be lowercase, start with a letter, and contain only a-z, 0-9, _${NC}"
@@ -198,6 +207,11 @@ echo "  Package:     $PACKAGE"
 echo "  Author:      $AUTHOR"
 echo "  Description: $DESCRIPTION"
 echo "  Language:    $LANGUAGE"
+if [[ "$ENABLE_CI" == "true" ]]; then
+    echo "  GitHub CI:   Yes"
+else
+    echo "  GitHub CI:   No"
+fi
 echo ""
 echo -e "${YELLOW}Versions:${NC}"
 echo "  Minecraft:     $MC_VERSION"
@@ -528,7 +542,12 @@ rm -f "$SCRIPT_DIR/LICENSE.bak"
 
 # 9. Clean up setup files (tests, CI, setup scripts)
 echo -e "${GRAY}  Cleaning up setup files...${NC}"
-rm -rf "$SCRIPT_DIR/test" "$SCRIPT_DIR/.github" "$SCRIPT_DIR/CLAUDE.md" "$SCRIPT_DIR/setup.ps1"
+rm -rf "$SCRIPT_DIR/test" "$SCRIPT_DIR/CLAUDE.md" "$SCRIPT_DIR/setup.ps1"
+if [[ "$ENABLE_CI" == "true" ]]; then
+    rm -f "$SCRIPT_DIR/.github/workflows/test-setup.yml"
+else
+    rm -rf "$SCRIPT_DIR/.github"
+fi
 
 echo ""
 echo -e "${GREEN}Setup complete!${NC}"

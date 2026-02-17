@@ -4,7 +4,8 @@
 
 param(
     [ValidateSet("java", "kotlin", "all")]
-    [string]$Language = "all"
+    [string]$Language = "all",
+    [switch]$TestCI
 )
 
 $ErrorActionPreference = "Stop"
@@ -58,8 +59,12 @@ function Run-TestForLanguage($lang) {
 
         # Run setup
         Write-Host "  Running setup.ps1..." -ForegroundColor Gray
-        & "$tempDir\setup.ps1" -ModId "testmod" -ModName "Test Mod" -Package "com.example.testmod" `
-            -Author "TestAuthor" -Description "A test mod" -Language $lang -Force
+        $setupArgs = @{
+            ModId = "testmod"; ModName = "Test Mod"; Package = "com.example.testmod"
+            Author = "TestAuthor"; Description = "A test mod"; Language = $lang; Force = $true
+        }
+        if ($TestCI) { $setupArgs["EnableCI"] = $true }
+        & "$tempDir\setup.ps1" @setupArgs
 
         $fail = $false
 
@@ -101,6 +106,24 @@ function Run-TestForLanguage($lang) {
             $fail = $true
         }
 
+        # --- Verify CI setup ---
+        Write-Host "  Checking CI setup..." -ForegroundColor Yellow
+        if ($TestCI) {
+            if (-not (Test-Path "$tempDir\.github\workflows\build.yml")) {
+                Write-Host "  FAIL: build.yml not found (CI enabled)" -ForegroundColor Red
+                $fail = $true
+            }
+            if (Test-Path "$tempDir\.github\workflows\test-setup.yml") {
+                Write-Host "  FAIL: test-setup.yml not deleted (CI enabled)" -ForegroundColor Red
+                $fail = $true
+            }
+        } else {
+            if (Test-Path "$tempDir\.github") {
+                Write-Host "  FAIL: .github not deleted (CI disabled)" -ForegroundColor Red
+                $fail = $true
+            }
+        }
+
         # --- Normalize versions ---
         Write-Host "  Normalizing versions..." -ForegroundColor Yellow
         & "$RepoRoot\test\normalize-versions.ps1" -File "$tempDir\fabric\src\main\resources\fabric.mod.json"
@@ -138,6 +161,14 @@ function Run-TestForLanguage($lang) {
             "$golden\neoforge\src\main\resources\META-INF\neoforge.mods.toml")) { $fail = $true }
         if (-not (Compare-Golden "$tempDir\settings.gradle" `
             "$golden\settings.gradle")) { $fail = $true }
+
+        # --- CI-specific golden file: build.yml ---
+        if ($TestCI) {
+            Write-Host "`n  Diffing CI-specific golden files..." -ForegroundColor Yellow
+            $ciGolden = Join-Path $RepoRoot "test\golden\ci"
+            if (-not (Compare-Golden "$tempDir\.github\workflows\build.yml" `
+                "$ciGolden\build.yml")) { $fail = $true }
+        }
 
         if ($fail) {
             Write-Host "`n  FAILED: $lang" -ForegroundColor Red

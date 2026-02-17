@@ -10,6 +10,7 @@ param(
     [string]$MinecraftVersion,
     [ValidateSet("java", "kotlin")]
     [string]$Language,
+    [switch]$EnableCI,
     [switch]$Force
 )
 
@@ -137,6 +138,13 @@ if ($Language -ne "java" -and $Language -ne "kotlin") {
 }
 $UseKotlin = $Language -eq "kotlin"
 
+if (-not $EnableCI) {
+    $ciChoice = Read-Host "Enable GitHub Actions CI build workflow? (y/N)"
+    if ($ciChoice -eq 'y' -or $ciChoice -eq 'Y') {
+        $EnableCI = [switch]::new($true)
+    }
+}
+
 # Validate mod ID
 if ($ModId -notmatch '^[a-z][a-z0-9_]*$') {
     Write-Host "Error: Mod ID must be lowercase, start with a letter, and contain only a-z, 0-9, _" -ForegroundColor Red
@@ -189,6 +197,7 @@ Write-Host "  Package:     $Package"
 Write-Host "  Author:      $Author"
 Write-Host "  Description: $Description"
 Write-Host "  Language:    $Language"
+Write-Host "  GitHub CI:   $(if ($EnableCI) { 'Yes' } else { 'No' })"
 Write-Host ""
 Write-Host "Versions:" -ForegroundColor Yellow
 Write-Host "  Minecraft:   $mcVersion"
@@ -534,10 +543,17 @@ Set-Content (Join-Path $scriptDir "LICENSE") $license -NoNewline
 
 # 9. Clean up setup files (tests, CI, setup scripts)
 Write-Host "  Cleaning up setup files..." -ForegroundColor Gray
-$cleanupPaths = @("test", ".github", "CLAUDE.md", "setup.sh")
+$cleanupPaths = @("test", "CLAUDE.md", "setup.sh")
 foreach ($p in $cleanupPaths) {
     $fullPath = Join-Path $scriptDir $p
     if (Test-Path $fullPath) { Remove-Item -Recurse -Force $fullPath }
+}
+if ($EnableCI) {
+    $testSetupYml = Join-Path $scriptDir ".github/workflows/test-setup.yml"
+    if (Test-Path $testSetupYml) { Remove-Item -Force $testSetupYml }
+} else {
+    $githubDir = Join-Path $scriptDir ".github"
+    if (Test-Path $githubDir) { Remove-Item -Recurse -Force $githubDir }
 }
 
 Write-Host ""
