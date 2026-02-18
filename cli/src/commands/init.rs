@@ -26,6 +26,9 @@ pub fn run(opts: InitOptions) -> Result<()> {
 
     let interactive = opts.mod_id.is_none();
 
+    // Load global config for defaults (never blocks init)
+    let global = crate::global_config::GlobalConfig::load().unwrap_or_default();
+
     // Gather inputs
     let mod_id = if let Some(id) = opts.mod_id {
         id
@@ -52,7 +55,8 @@ pub fn run(opts: InitOptions) -> Result<()> {
     let author = if let Some(a) = opts.author {
         a
     } else {
-        prompt_input("Author", "Your Name")?
+        let default_author = global.defaults.author.as_deref().unwrap_or("Your Name");
+        prompt_input("Author", default_author)?
     };
 
     let description = if let Some(d) = opts.description {
@@ -64,9 +68,13 @@ pub fn run(opts: InitOptions) -> Result<()> {
     let language = if let Some(l) = opts.language {
         l
     } else if interactive {
-        prompt_select("Language", &["java", "kotlin"])?
+        let default_idx = match global.defaults.language.as_deref() {
+            Some("kotlin") => 1,
+            _ => 0,
+        };
+        prompt_select("Language", &["java", "kotlin"], default_idx)?
     } else {
-        "java".to_string()
+        global.defaults.language.as_deref().unwrap_or("java").to_string()
     };
 
     let loaders = if !opts.loaders.is_empty() {
@@ -140,6 +148,13 @@ pub fn run(opts: InitOptions) -> Result<()> {
         add::add_neoforge_files(project_dir, &vars, &language)?;
         crate::gradle::add_include_to_settings(project_dir, "neoforge")?;
         println!("{}", "  Created neoforge/ module".green());
+    }
+
+    // Create run/options.txt (symlink or copy from global options)
+    match create_run_options(project_dir) {
+        Ok(true) => println!("{}", "  Created run/options.txt (symlink)".green()),
+        Ok(false) => println!("{}", "  Created run/options.txt (copied)".green()),
+        Err(e) => eprintln!("  {}", format!("Warning: Could not create options.txt: {e}").yellow()),
     }
 
     // Write CI
@@ -289,11 +304,11 @@ fn prompt_input(prompt: &str, default: &str) -> Result<String> {
     Ok(result)
 }
 
-fn prompt_select(prompt: &str, items: &[&str]) -> Result<String> {
+fn prompt_select(prompt: &str, items: &[&str], default: usize) -> Result<String> {
     let selection = dialoguer::Select::new()
         .with_prompt(format!("  {prompt}"))
         .items(items)
-        .default(0)
+        .default(default)
         .interact()
         .map_err(|e| crate::error::McmodError::Other(e.to_string()))?;
     Ok(items[selection].to_string())
@@ -317,6 +332,14 @@ fn prompt_confirm(prompt: &str, default: bool) -> Result<bool> {
         .interact()
         .map_err(|e| crate::error::McmodError::Other(e.to_string()))?;
     Ok(result)
+}
+
+fn create_run_options(project_dir: &Path) -> Result<bool> {
+    let global_options = crate::global_config::ensure_global_options()?;
+    let run_dir = project_dir.join("run");
+    crate::util::ensure_dir(&run_dir)?;
+    let link_path = run_dir.join("options.txt");
+    crate::global_config::create_options_symlink(&link_path, &global_options)
 }
 
 fn default_mod_name(mod_id: &str) -> String {

@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod error;
+mod global_config;
 mod gradle;
 mod template;
 mod util;
@@ -75,6 +76,22 @@ enum Commands {
 
     /// Update mcmod to the latest version
     Update,
+
+    /// Manage global CLI preferences
+    Config {
+        #[command(subcommand)]
+        action: ConfigCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// Set a global preference (e.g., mcmod config set author "Jane")
+    Set { key: String, value: String },
+    /// Get a global preference value
+    Get { key: String },
+    /// List all global preferences
+    List,
 }
 
 fn main() {
@@ -106,6 +123,11 @@ fn main() {
         }),
         Commands::Add { feature, dir } => commands::add::run(&feature, &dir),
         Commands::Update => commands::update::run(),
+        Commands::Config { action } => match action {
+            ConfigCommands::Set { key, value } => commands::config::run_set(&key, &value),
+            ConfigCommands::Get { key } => commands::config::run_get(&key),
+            ConfigCommands::List => commands::config::run_list(),
+        },
     };
 
     if let Err(e) = result {
