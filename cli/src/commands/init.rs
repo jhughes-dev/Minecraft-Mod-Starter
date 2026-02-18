@@ -29,11 +29,14 @@ pub fn run(opts: InitOptions) -> Result<()> {
     // Load global config for defaults (never blocks init)
     let global = crate::global_config::GlobalConfig::load().unwrap_or_default();
 
+    // Derive default mod ID from directory name
+    let default_mod_id = slugify_dir_name(&opts.dir);
+
     // Gather inputs
     let mod_id = if let Some(id) = opts.mod_id {
         id
     } else {
-        prompt_input("Mod ID", "mymod")?
+        prompt_input("Mod ID", &default_mod_id)?
     };
     crate::util::validate_mod_id(&mod_id)?;
 
@@ -44,20 +47,21 @@ pub fn run(opts: InitOptions) -> Result<()> {
         prompt_input("Mod Name", &default)?
     };
 
-    let package = if let Some(pkg) = opts.package {
-        pkg
-    } else {
-        let default = format!("com.example.{mod_id}");
-        prompt_input("Package", &default)?
-    };
-    crate::util::validate_package(&package)?;
-
     let author = if let Some(a) = opts.author {
         a
     } else {
         let default_author = global.defaults.author.as_deref().unwrap_or("Your Name");
         prompt_input("Author", default_author)?
     };
+
+    let package = if let Some(pkg) = opts.package {
+        pkg
+    } else {
+        let author_slug = slugify_for_package(&author);
+        let default = format!("com.{author_slug}.{mod_id}");
+        prompt_input("Package", &default)?
+    };
+    crate::util::validate_package(&package)?;
 
     let description = if let Some(d) = opts.description {
         d
@@ -337,6 +341,56 @@ fn create_run_options(project_dir: &Path) -> Result<()> {
     let run_dir = project_dir.join("run");
     crate::util::ensure_dir(&run_dir)?;
     crate::global_config::copy_options_to(&run_dir.join("options.txt"))
+}
+
+/// Converts an author name to a valid Java package segment (lowercase, alphanumeric).
+/// e.g. "Malteas" -> "malteas", "John Doe" -> "johndoe"
+fn slugify_for_package(author: &str) -> String {
+    let slug: String = author
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+
+    if slug.is_empty() || slug.starts_with(|c: char| c.is_ascii_digit()) {
+        "example".to_string()
+    } else {
+        slug
+    }
+}
+
+/// Converts a directory name to a valid mod ID (lowercase, underscores).
+/// e.g. "My Cool Mod" -> "my_cool_mod", "some-project" -> "some_project"
+fn slugify_dir_name(dir: &Path) -> String {
+    let name = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("mymod");
+
+    let slug: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    // Collapse consecutive underscores and trim leading/trailing ones
+    let slug: String = slug
+        .split('_')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("_");
+
+    // Must start with a letter; fall back if empty or starts with digit
+    if slug.is_empty() || slug.starts_with(|c: char| c.is_ascii_digit()) {
+        "mymod".to_string()
+    } else {
+        slug
+    }
 }
 
 fn default_mod_name(mod_id: &str) -> String {
