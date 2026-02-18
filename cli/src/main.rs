@@ -72,6 +72,9 @@ enum Commands {
         #[arg(long, default_value = ".")]
         dir: PathBuf,
     },
+
+    /// Update mcmod to the latest version
+    Update,
 }
 
 fn main() {
@@ -102,6 +105,7 @@ fn main() {
             offline,
         }),
         Commands::Add { feature, dir } => commands::add::run(&feature, &dir),
+        Commands::Update => commands::update::run(),
     };
 
     if let Err(e) = result {
