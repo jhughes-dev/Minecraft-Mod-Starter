@@ -147,31 +147,13 @@ pub fn ensure_global_options() -> Result<PathBuf> {
     Ok(path)
 }
 
-/// Links or copies options.txt from target_path to link_path (cross-platform).
-/// Tries to create a symlink first; falls back to copying on Windows if
-/// symlinks aren't available (Developer Mode disabled).
-/// No-op if the link/file already exists.
-/// Returns true if a symlink was created, false if a copy was used.
-pub fn create_options_symlink(link_path: &Path, target_path: &Path) -> Result<bool> {
-    if link_path.exists() || link_path.symlink_metadata().is_ok() {
-        return Ok(true);
+/// Copies the global options.txt template into the given path.
+/// No-op if the destination already exists.
+pub fn copy_options_to(dest: &Path) -> Result<()> {
+    if dest.exists() {
+        return Ok(());
     }
-
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(target_path, link_path)?;
-        return Ok(true);
-    }
-
-    #[cfg(windows)]
-    {
-        match std::os::windows::fs::symlink_file(target_path, link_path) {
-            Ok(()) => return Ok(true),
-            Err(_) => {
-                // Symlinks unavailable — fall back to copying the file
-                std::fs::copy(target_path, link_path)?;
-                return Ok(false);
-            }
-        }
-    }
+    let template = ensure_global_options()?;
+    std::fs::copy(&template, dest)?;
+    Ok(())
 }

@@ -150,10 +150,9 @@ pub fn run(opts: InitOptions) -> Result<()> {
         println!("{}", "  Created neoforge/ module".green());
     }
 
-    // Create run/options.txt (symlink or copy from global options)
+    // Copy global options.txt template into run/ (shared by both loaders)
     match create_run_options(project_dir) {
-        Ok(true) => println!("{}", "  Created run/options.txt (symlink)".green()),
-        Ok(false) => println!("{}", "  Created run/options.txt (copied)".green()),
+        Ok(()) => println!("{}", "  Created run/options.txt".green()),
         Err(e) => eprintln!("  {}", format!("Warning: Could not create options.txt: {e}").yellow()),
     }
 
@@ -334,12 +333,10 @@ fn prompt_confirm(prompt: &str, default: bool) -> Result<bool> {
     Ok(result)
 }
 
-fn create_run_options(project_dir: &Path) -> Result<bool> {
-    let global_options = crate::global_config::ensure_global_options()?;
+fn create_run_options(project_dir: &Path) -> Result<()> {
     let run_dir = project_dir.join("run");
     crate::util::ensure_dir(&run_dir)?;
-    let link_path = run_dir.join("options.txt");
-    crate::global_config::create_options_symlink(&link_path, &global_options)
+    crate::global_config::copy_options_to(&run_dir.join("options.txt"))
 }
 
 fn default_mod_name(mod_id: &str) -> String {
