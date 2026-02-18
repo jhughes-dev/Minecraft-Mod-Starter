@@ -26,9 +26,6 @@ bin/
 # Fabric / NeoForge
 run/
 
-# Rust
-cli/target/
-
 # Misc
 *.log
 *.bak

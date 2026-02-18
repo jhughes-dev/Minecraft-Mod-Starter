@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# DEPRECATED: This script is deprecated. Please use the `mcmod` CLI instead:
+#   cargo install --path cli
+#   mcmod init
+# See cli/README.md for more information.
+
 # Multi-Loader Mod Setup Script
 # Customizes this boilerplate for a new mod project (Fabric + NeoForge via Architectury)
 
