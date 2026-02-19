@@ -6,7 +6,9 @@ const CONFIG_FILENAME: &str = "config.toml";
 const OPTIONS_FILENAME: &str = "options.txt";
 
 /// Default content for a new options.txt (matches Minecraft defaults for common settings).
-const DEFAULT_OPTIONS: &str = "lang:en_us\n";
+const DEFAULT_OPTIONS: &str = "\
+lang:en_us\n\
+fullscreen:true\n";
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct GlobalConfig {

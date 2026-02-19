@@ -20,6 +20,9 @@ subprojects {
 
     loom {
         silentMojangMappingsLicense()
+        runConfigs.configureEach {
+            runDir = "../run"
+        }
     }
 
     dependencies {

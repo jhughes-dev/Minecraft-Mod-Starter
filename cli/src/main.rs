@@ -59,6 +59,10 @@ enum Commands {
         #[arg(long)]
         ci: Option<bool>,
 
+        /// Enable server-side support (accepts Minecraft EULA)
+        #[arg(long)]
+        server: Option<bool>,
+
         /// Skip online version fetching, use defaults
         #[arg(long)]
         offline: bool,
@@ -108,6 +112,7 @@ fn main() {
             language,
             loaders,
             ci,
+            server,
             offline,
         } => commands::init::run(commands::init::InitOptions {
             dir,
@@ -119,6 +124,7 @@ fn main() {
             language,
             loaders,
             ci,
+            server,
             offline,
         }),
         Commands::Add { feature, dir } => commands::add::run(&feature, &dir),
