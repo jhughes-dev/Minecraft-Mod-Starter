@@ -248,9 +248,15 @@ pub fn run(opts: InitOptions) -> Result<()> {
     }
 
     // Copy global options.txt template into run/ (shared by both loaders)
-    match create_run_options(project_dir) {
+    match create_run_options(project_dir, &global) {
         Ok(()) => println!("{}", "  Created run/options.txt".green()),
         Err(e) => eprintln!("  {}", format!("Warning: Could not create options.txt: {e}").yellow()),
+    }
+
+    // Write dev-defaults data pack for game rule configuration
+    match crate::global_config::write_dev_datapack(project_dir, &global, &versions.minecraft) {
+        Ok(()) => println!("{}", "  Created run/world/datapacks/dev-defaults/".green()),
+        Err(e) => eprintln!("  {}", format!("Warning: Could not create dev data pack: {e}").yellow()),
     }
 
     // Write server files if server support enabled
@@ -444,10 +450,10 @@ fn prompt_confirm(prompt: &str, default: bool) -> Result<bool> {
     Ok(result)
 }
 
-fn create_run_options(project_dir: &Path) -> Result<()> {
+fn create_run_options(project_dir: &Path, config: &crate::global_config::GlobalConfig) -> Result<()> {
     let run_dir = project_dir.join("run");
     crate::util::ensure_dir(&run_dir)?;
-    crate::global_config::copy_options_to(&run_dir.join("options.txt"))
+    crate::global_config::copy_options_to(&run_dir.join("options.txt"), config)
 }
 
 /// Converts an author name to a valid Java package segment (lowercase, alphanumeric).

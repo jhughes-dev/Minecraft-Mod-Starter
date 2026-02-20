@@ -29,8 +29,18 @@ pub fn run_list() -> Result<()> {
     println!("  {}", format!("Config directory: {}", dir.display()).dimmed());
     println!();
 
-    for (key, value) in config.list() {
-        println!("  {:<12} {}", format!("{key}:"), value);
+    let entries = config.list();
+    let mut current_section = "";
+
+    for (section, key, value) in &entries {
+        if *section != current_section {
+            if !current_section.is_empty() {
+                println!();
+            }
+            println!("  {}", format!("[{section}]").bold());
+            current_section = section;
+        }
+        println!("  {:<22} {}", format!("{key}:"), value);
     }
     println!();
     Ok(())
