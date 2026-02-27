@@ -549,7 +549,42 @@ rm -f "$SCRIPT_DIR/LICENSE.bak"
 echo -e "${GRAY}  Cleaning up setup files...${NC}"
 rm -rf "$SCRIPT_DIR/test" "$SCRIPT_DIR/CLAUDE.md" "$SCRIPT_DIR/setup.ps1"
 if [[ "$ENABLE_CI" == "true" ]]; then
+    # Remove repo-only workflows, keep only the mod build workflow
     rm -f "$SCRIPT_DIR/.github/workflows/test-setup.yml"
+    # Overwrite build.yml with the clean version for generated projects
+    cat > "$SCRIPT_DIR/.github/workflows/build.yml" << 'CIEOF'
+name: Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew && ./gradlew build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fabric
+          path: |
+            fabric/build/libs/*.jar
+            !fabric/build/libs/*-dev-shadow.jar
+            !fabric/build/libs/*-sources.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neoforge
+          path: |
+            neoforge/build/libs/*.jar
+            !neoforge/build/libs/*-dev-shadow.jar
+            !neoforge/build/libs/*-sources.jar
+CIEOF
 else
     rm -rf "$SCRIPT_DIR/.github"
 fi
