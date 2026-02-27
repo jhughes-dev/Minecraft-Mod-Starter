@@ -41,7 +41,7 @@ The built binary is at `cli/target/debug/mcmod.exe` (Windows) or `cli/target/deb
 .\test\run-tests.ps1 -TestCI              # Also test CI workflow generation
 ```
 
-These run `setup.ps1` in temp directories and diff output against `test/golden/` files. Version numbers are normalized before comparison.
+These build the `mcmod` CLI, run `mcmod init` in temp directories, and diff output against `test/golden/` files. Version numbers are normalized before comparison.
 
 ## Architecture
 
@@ -78,6 +78,6 @@ Templates live in `cli/templates/` and are embedded into the binary at compile t
 - **`mcmod.toml`** — Per-project config written by the CLI, tracks mod info, enabled loaders/features, and versions. Used by `mcmod add` to modify existing projects.
 - **Root `build.gradle`** — Applies Architectury plugin and Loom; sets Java 21, official Minecraft mappings. Conditionally applies Kotlin plugin if `mod_language=kotlin`.
 
-### Setup scripts (legacy)
+### Setup scripts
 
-`setup.ps1` and `setup.sh` are the original setup scripts (before the Rust CLI). The PowerShell script is still used by integration tests.
+The original `setup.ps1` and `setup.sh` scripts have been removed. All scaffolding is done through the `mcmod` CLI.

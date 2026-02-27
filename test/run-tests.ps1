@@ -1,5 +1,5 @@
 # Local test runner - mirrors the GitHub Actions CI workflow.
-# Runs setup.ps1 for both java and kotlin in isolated temp copies, then diffs against golden files.
+# Builds mcmod CLI and tests scaffolding for both java and kotlin, then diffs against golden files.
 # Usage: .\test\run-tests.ps1 [-Language java|kotlin]  (omit -Language to run both)
 
 param(
@@ -10,7 +10,22 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$TotalFail = $false
+
+# Build CLI
+Write-Host "`nBuilding mcmod CLI..." -ForegroundColor Cyan
+Push-Location (Join-Path $RepoRoot "cli")
+try {
+    cargo build
+    if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+} finally {
+    Pop-Location
+}
+
+$McmodBin = Join-Path $RepoRoot "cli/target/debug/mcmod.exe"
+if (-not (Test-Path $McmodBin)) {
+    throw "mcmod binary not found at $McmodBin"
+}
+Write-Host "  CLI built: $McmodBin" -ForegroundColor Green
 
 function Compare-Golden($actual, $expected) {
     if (-not (Test-Path $actual)) {
@@ -46,32 +61,33 @@ function Compare-Golden($actual, $expected) {
 function Run-TestForLanguage($lang) {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  Testing: PowerShell + $lang" -ForegroundColor Cyan
+    Write-Host "  Testing: mcmod init + $lang$(if ($TestCI) { ' + CI' } else { '' })" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
 
-    # Create isolated temp copy
+    # Create empty temp dir
     $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "mc-mod-test-$lang-$(Get-Random)"
     Write-Host "  Temp dir: $tempDir" -ForegroundColor Gray
 
     try {
-        # Copy repo to temp (exclude .git, build, test output dirs)
-        robocopy $RepoRoot $tempDir /E /NFL /NDL /NJH /NJS /XD ".git" "build" ".gradle" "out" | Out-Null
+        $null = New-Item -ItemType Directory -Path $tempDir -Force
 
-        # Run setup
-        Write-Host "  Running setup.ps1..." -ForegroundColor Gray
-        $setupArgs = @{
-            ModId = "testmod"; ModName = "Test Mod"; Package = "com.example.testmod"
-            Author = "TestAuthor"; Description = "A test mod"; Language = $lang; Force = $true
-        }
-        if ($TestCI) { $setupArgs["EnableCI"] = $true }
-        & "$tempDir\setup.ps1" @setupArgs
+        # Run mcmod init
+        Write-Host "  Running mcmod init..." -ForegroundColor Gray
+        $ciFlag = if ($TestCI) { "true" } else { "false" }
+        & $McmodBin init --dir $tempDir `
+            --mod-id testmod --mod-name "Test Mod" `
+            --package com.example.testmod --author TestAuthor `
+            --description "A test mod" --language $lang `
+            --loader fabric --loader neoforge `
+            --ci $ciFlag --server false --publishing false --offline
+        if ($LASTEXITCODE -ne 0) { throw "mcmod init failed" }
 
         $fail = $false
 
         # --- Verify gradle.properties ---
         Write-Host "`n  Checking gradle.properties..." -ForegroundColor Yellow
         $props = Get-Content "$tempDir\gradle.properties" -Raw
-        @('archives_base_name=testmod', 'maven_group=com.example.testmod', 'mod_name=Test Mod', "mod_language=$lang") | ForEach-Object {
+        @('archives_base_name=testmod', 'maven_group=com.example.testmod', 'mod_name=Test Mod') | ForEach-Object {
             if ($props -notmatch [regex]::Escape($_)) {
                 Write-Host "  FAIL: gradle.properties missing '$_'" -ForegroundColor Red
                 $fail = $true
@@ -89,20 +105,24 @@ function Run-TestForLanguage($lang) {
         # --- Verify Kotlin-specific ---
         if ($lang -eq "kotlin") {
             Write-Host "  Checking Kotlin-specific settings..." -ForegroundColor Yellow
+            if ($props -notmatch '(?m)^mod_language=kotlin') {
+                Write-Host "  FAIL: mod_language=kotlin not set" -ForegroundColor Red
+                $fail = $true
+            }
             if ($props -notmatch '(?m)^kotlin_version=') {
-                Write-Host "  FAIL: kotlin_version not enabled" -ForegroundColor Red
+                Write-Host "  FAIL: kotlin_version not set" -ForegroundColor Red
                 $fail = $true
             }
             if (Test-Path "$tempDir\common\src\main\java\com\example\testmod\TestmodMod.java") {
-                Write-Host "  FAIL: Java source not cleaned up" -ForegroundColor Red
+                Write-Host "  FAIL: Java source should not exist for kotlin" -ForegroundColor Red
                 $fail = $true
             }
         }
 
         # --- Verify assets ---
-        Write-Host "  Checking assets renamed..." -ForegroundColor Yellow
+        Write-Host "  Checking assets..." -ForegroundColor Yellow
         if (-not (Test-Path "$tempDir\common\src\main\resources\assets\testmod")) {
-            Write-Host "  FAIL: Assets not renamed" -ForegroundColor Red
+            Write-Host "  FAIL: Assets directory not found" -ForegroundColor Red
             $fail = $true
         }
 
@@ -113,13 +133,9 @@ function Run-TestForLanguage($lang) {
                 Write-Host "  FAIL: build.yml not found (CI enabled)" -ForegroundColor Red
                 $fail = $true
             }
-            if (Test-Path "$tempDir\.github\workflows\test-setup.yml") {
-                Write-Host "  FAIL: test-setup.yml not deleted (CI enabled)" -ForegroundColor Red
-                $fail = $true
-            }
         } else {
             if (Test-Path "$tempDir\.github") {
-                Write-Host "  FAIL: .github not deleted (CI disabled)" -ForegroundColor Red
+                Write-Host "  FAIL: .github should not exist (CI disabled)" -ForegroundColor Red
                 $fail = $true
             }
         }

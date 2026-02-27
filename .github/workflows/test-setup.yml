@@ -1,4 +1,4 @@
-name: Test Setup Scripts
+name: Test CLI
 
 on:
   push:
@@ -7,63 +7,71 @@ on:
     branches: [main]
 
 jobs:
-  test-setup:
-    name: "${{ matrix.shell }} + ${{ matrix.language }}"
+  build-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cd cli && cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcmod
+          path: cli/target/release/mcmod
+
+  test-scaffold:
+    needs: build-cli
+    name: "scaffold: ${{ matrix.language }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shell: [bash, pwsh]
         language: [java, kotlin]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mcmod
+      - run: chmod +x mcmod
 
-      - name: Save test artifacts before setup cleanup
-        run: cp -r test /tmp/test-artifacts
-
-      - name: Run setup (bash)
-        if: matrix.shell == 'bash'
+      - name: Run mcmod init
         run: |
-          chmod +x setup.sh
-          printf 'testmod\nTest Mod\ncom.example.testmod\nTestAuthor\nA test mod\n${{ matrix.language }}\n' \
-            | bash setup.sh --force
-
-      - name: Run setup (pwsh)
-        if: matrix.shell == 'pwsh'
-        shell: pwsh
-        run: |
-          ./setup.ps1 -ModId "testmod" -ModName "Test Mod" -Package "com.example.testmod" `
-            -Author "TestAuthor" -Description "A test mod" -Language "${{ matrix.language }}" -Force
+          mkdir /tmp/testmod
+          ./mcmod init --dir /tmp/testmod \
+            --mod-id testmod --mod-name "Test Mod" \
+            --package com.example.testmod --author TestAuthor \
+            --description "A test mod" --language ${{ matrix.language }} \
+            --loader fabric --loader neoforge \
+            --ci false --server false --publishing false --offline
 
       - name: Verify gradle.properties
         run: |
-          grep -q 'archives_base_name=testmod' gradle.properties
-          grep -q 'maven_group=com.example.testmod' gradle.properties
-          grep -q 'mod_name=Test Mod' gradle.properties
-          grep -q 'mod_language=${{ matrix.language }}' gradle.properties
+          grep -q 'archives_base_name=testmod' /tmp/testmod/gradle.properties
+          grep -q 'maven_group=com.example.testmod' /tmp/testmod/gradle.properties
+          grep -q 'mod_name=Test Mod' /tmp/testmod/gradle.properties
 
       - name: Verify Fabric API enabled
-        run: grep -q '^[^/]*modApi "net.fabricmc.fabric-api:fabric-api' fabric/build.gradle
+        run: grep -q '^[^/]*modApi "net.fabricmc.fabric-api:fabric-api' /tmp/testmod/fabric/build.gradle
 
       - name: Verify Kotlin-specific settings
         if: matrix.language == 'kotlin'
         run: |
-          grep -q '^kotlin_version=' gradle.properties
-          test ! -f "common/src/main/java/com/example/testmod/TestmodMod.java"
+          grep -q 'mod_language=kotlin' /tmp/testmod/gradle.properties
+          grep -q '^kotlin_version=' /tmp/testmod/gradle.properties
+          test ! -f "/tmp/testmod/common/src/main/java/com/example/testmod/TestmodMod.java"
 
       - name: Verify common assets renamed
-        run: test -d "common/src/main/resources/assets/testmod"
+        run: test -d "/tmp/testmod/common/src/main/resources/assets/testmod"
 
       - name: Normalize versions in generated metadata
         run: |
-          chmod +x /tmp/test-artifacts/normalize-versions.sh
-          bash /tmp/test-artifacts/normalize-versions.sh fabric/src/main/resources/fabric.mod.json
-          bash /tmp/test-artifacts/normalize-versions.sh neoforge/src/main/resources/META-INF/neoforge.mods.toml
+          chmod +x test/normalize-versions.sh
+          bash test/normalize-versions.sh /tmp/testmod/fabric/src/main/resources/fabric.mod.json
+          bash test/normalize-versions.sh /tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml
 
       - name: Diff against golden files
         run: |
           LANG="${{ matrix.language }}"
-          GOLDEN="/tmp/test-artifacts/golden/$LANG"
+          GOLDEN="test/golden/$LANG"
           FAIL=0
 
           diff_file() {
@@ -78,104 +86,98 @@ jobs:
           }
 
           if [ "$LANG" = "java" ]; then
-            diff_file "common/src/main/java/com/example/testmod/TestmodMod.java" \
+            diff_file "/tmp/testmod/common/src/main/java/com/example/testmod/TestmodMod.java" \
                        "$GOLDEN/common/src/main/java/com/example/testmod/TestmodMod.java" || FAIL=1
-            diff_file "fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" \
+            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" \
                        "$GOLDEN/fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" || FAIL=1
-            diff_file "fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
+            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
                        "$GOLDEN/fabric/src/main/java/com/example/testmod/mixin/package-info.java" || FAIL=1
-            diff_file "neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" \
+            diff_file "/tmp/testmod/neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" \
                        "$GOLDEN/neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" || FAIL=1
           else
-            diff_file "common/src/main/kotlin/com/example/testmod/TestmodMod.kt" \
+            diff_file "/tmp/testmod/common/src/main/kotlin/com/example/testmod/TestmodMod.kt" \
                        "$GOLDEN/common/src/main/kotlin/com/example/testmod/TestmodMod.kt" || FAIL=1
-            diff_file "fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" \
+            diff_file "/tmp/testmod/fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" \
                        "$GOLDEN/fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" || FAIL=1
-            diff_file "fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
+            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
                        "$GOLDEN/fabric/src/main/java/com/example/testmod/mixin/package-info.java" || FAIL=1
-            diff_file "neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" \
+            diff_file "/tmp/testmod/neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" \
                        "$GOLDEN/neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" || FAIL=1
           fi
 
-          diff_file "fabric/src/main/resources/fabric.mod.json" \
+          diff_file "/tmp/testmod/fabric/src/main/resources/fabric.mod.json" \
                      "$GOLDEN/fabric/src/main/resources/fabric.mod.json" || FAIL=1
-          diff_file "fabric/src/main/resources/testmod.mixins.json" \
+          diff_file "/tmp/testmod/fabric/src/main/resources/testmod.mixins.json" \
                      "$GOLDEN/fabric/src/main/resources/testmod.mixins.json" || FAIL=1
-          diff_file "neoforge/src/main/resources/META-INF/neoforge.mods.toml" \
+          diff_file "/tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml" \
                      "$GOLDEN/neoforge/src/main/resources/META-INF/neoforge.mods.toml" || FAIL=1
-          diff_file "settings.gradle" \
+          diff_file "/tmp/testmod/settings.gradle" \
                      "$GOLDEN/settings.gradle" || FAIL=1
 
           [ "$FAIL" -eq 0 ] || exit 1
           echo "All golden file comparisons passed."
 
+      - name: Verify no .github dir (CI disabled)
+        run: test ! -d /tmp/testmod/.github
+
   test-ci-enabled:
-    name: "CI-enabled: ${{ matrix.shell }} + ${{ matrix.language }}"
+    needs: build-cli
+    name: "CI-enabled: ${{ matrix.language }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shell: [bash, pwsh]
         language: [java, kotlin]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mcmod
+      - run: chmod +x mcmod
 
-      - name: Save test artifacts before setup cleanup
-        run: cp -r test /tmp/test-artifacts
-
-      - name: Run setup with CI enabled (bash)
-        if: matrix.shell == 'bash'
+      - name: Run mcmod init with CI
         run: |
-          chmod +x setup.sh
-          printf 'testmod\nTest Mod\ncom.example.testmod\nTestAuthor\nA test mod\n${{ matrix.language }}\n' \
-            | bash setup.sh --force --enable-ci
-
-      - name: Run setup with CI enabled (pwsh)
-        if: matrix.shell == 'pwsh'
-        shell: pwsh
-        run: |
-          ./setup.ps1 -ModId "testmod" -ModName "Test Mod" -Package "com.example.testmod" `
-            -Author "TestAuthor" -Description "A test mod" -Language "${{ matrix.language }}" -EnableCI -Force
+          mkdir /tmp/testmod
+          ./mcmod init --dir /tmp/testmod \
+            --mod-id testmod --mod-name "Test Mod" \
+            --package com.example.testmod --author TestAuthor \
+            --description "A test mod" --language ${{ matrix.language }} \
+            --loader fabric --loader neoforge \
+            --ci true --server false --publishing false --offline
 
       - name: Verify build.yml exists
-        run: test -f .github/workflows/build.yml
-
-      - name: Verify test-setup.yml deleted
-        run: test ! -f .github/workflows/test-setup.yml
-
-      - name: Verify test directory deleted
-        run: test ! -d test
+        run: test -f /tmp/testmod/.github/workflows/build.yml
 
       - name: Verify gradle.properties
         run: |
-          grep -q 'archives_base_name=testmod' gradle.properties
-          grep -q 'maven_group=com.example.testmod' gradle.properties
-          grep -q 'mod_name=Test Mod' gradle.properties
-          grep -q 'mod_language=${{ matrix.language }}' gradle.properties
+          grep -q 'archives_base_name=testmod' /tmp/testmod/gradle.properties
+          grep -q 'maven_group=com.example.testmod' /tmp/testmod/gradle.properties
+          grep -q 'mod_name=Test Mod' /tmp/testmod/gradle.properties
 
       - name: Verify Fabric API enabled
-        run: grep -q '^[^/]*modApi "net.fabricmc.fabric-api:fabric-api' fabric/build.gradle
+        run: grep -q '^[^/]*modApi "net.fabricmc.fabric-api:fabric-api' /tmp/testmod/fabric/build.gradle
 
       - name: Verify Kotlin-specific settings
         if: matrix.language == 'kotlin'
         run: |
-          grep -q '^kotlin_version=' gradle.properties
-          test ! -f "common/src/main/java/com/example/testmod/TestmodMod.java"
+          grep -q 'mod_language=kotlin' /tmp/testmod/gradle.properties
+          grep -q '^kotlin_version=' /tmp/testmod/gradle.properties
+          test ! -f "/tmp/testmod/common/src/main/java/com/example/testmod/TestmodMod.java"
 
       - name: Verify common assets renamed
-        run: test -d "common/src/main/resources/assets/testmod"
+        run: test -d "/tmp/testmod/common/src/main/resources/assets/testmod"
 
       - name: Normalize versions in generated metadata
         run: |
-          chmod +x /tmp/test-artifacts/normalize-versions.sh
-          bash /tmp/test-artifacts/normalize-versions.sh fabric/src/main/resources/fabric.mod.json
-          bash /tmp/test-artifacts/normalize-versions.sh neoforge/src/main/resources/META-INF/neoforge.mods.toml
+          chmod +x test/normalize-versions.sh
+          bash test/normalize-versions.sh /tmp/testmod/fabric/src/main/resources/fabric.mod.json
+          bash test/normalize-versions.sh /tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml
 
       - name: Diff against golden files
         run: |
           LANG="${{ matrix.language }}"
-          GOLDEN="/tmp/test-artifacts/golden/$LANG"
-          CI_GOLDEN="/tmp/test-artifacts/golden/ci"
+          GOLDEN="test/golden/$LANG"
+          CI_GOLDEN="test/golden/ci"
           FAIL=0
 
           diff_file() {
@@ -190,35 +192,35 @@ jobs:
           }
 
           if [ "$LANG" = "java" ]; then
-            diff_file "common/src/main/java/com/example/testmod/TestmodMod.java" \
+            diff_file "/tmp/testmod/common/src/main/java/com/example/testmod/TestmodMod.java" \
                        "$GOLDEN/common/src/main/java/com/example/testmod/TestmodMod.java" || FAIL=1
-            diff_file "fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" \
+            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" \
                        "$GOLDEN/fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" || FAIL=1
-            diff_file "fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
+            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
                        "$GOLDEN/fabric/src/main/java/com/example/testmod/mixin/package-info.java" || FAIL=1
-            diff_file "neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" \
+            diff_file "/tmp/testmod/neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" \
                        "$GOLDEN/neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" || FAIL=1
           else
-            diff_file "common/src/main/kotlin/com/example/testmod/TestmodMod.kt" \
+            diff_file "/tmp/testmod/common/src/main/kotlin/com/example/testmod/TestmodMod.kt" \
                        "$GOLDEN/common/src/main/kotlin/com/example/testmod/TestmodMod.kt" || FAIL=1
-            diff_file "fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" \
+            diff_file "/tmp/testmod/fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" \
                        "$GOLDEN/fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" || FAIL=1
-            diff_file "fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
+            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
                        "$GOLDEN/fabric/src/main/java/com/example/testmod/mixin/package-info.java" || FAIL=1
-            diff_file "neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" \
+            diff_file "/tmp/testmod/neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" \
                        "$GOLDEN/neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" || FAIL=1
           fi
 
-          diff_file "fabric/src/main/resources/fabric.mod.json" \
+          diff_file "/tmp/testmod/fabric/src/main/resources/fabric.mod.json" \
                      "$GOLDEN/fabric/src/main/resources/fabric.mod.json" || FAIL=1
-          diff_file "fabric/src/main/resources/testmod.mixins.json" \
+          diff_file "/tmp/testmod/fabric/src/main/resources/testmod.mixins.json" \
                      "$GOLDEN/fabric/src/main/resources/testmod.mixins.json" || FAIL=1
-          diff_file "neoforge/src/main/resources/META-INF/neoforge.mods.toml" \
+          diff_file "/tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml" \
                      "$GOLDEN/neoforge/src/main/resources/META-INF/neoforge.mods.toml" || FAIL=1
-          diff_file "settings.gradle" \
+          diff_file "/tmp/testmod/settings.gradle" \
                      "$GOLDEN/settings.gradle" || FAIL=1
 
-          diff_file ".github/workflows/build.yml" \
+          diff_file "/tmp/testmod/.github/workflows/build.yml" \
                      "$CI_GOLDEN/build.yml" || FAIL=1
 
           [ "$FAIL" -eq 0 ] || exit 1
