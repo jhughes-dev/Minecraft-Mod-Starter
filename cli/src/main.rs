@@ -63,6 +63,18 @@ enum Commands {
         #[arg(long)]
         server: Option<bool>,
 
+        /// Enable Modrinth/CurseForge publishing workflow
+        #[arg(long)]
+        publishing: Option<bool>,
+
+        /// Modrinth project slug (defaults to mod_id)
+        #[arg(long)]
+        modrinth_id: Option<String>,
+
+        /// CurseForge project ID (optional)
+        #[arg(long)]
+        curseforge_id: Option<String>,
+
         /// Skip online version fetching, use defaults
         #[arg(long)]
         offline: bool,
@@ -70,7 +82,7 @@ enum Commands {
 
     /// Add a feature to an existing project
     Add {
-        /// Feature to add: fabric, neoforge, ci, kotlin
+        /// Feature to add: fabric, neoforge, ci, kotlin, publishing
         feature: String,
 
         /// Project directory (default: current directory)
@@ -113,6 +125,9 @@ fn main() {
             loaders,
             ci,
             server,
+            publishing,
+            modrinth_id,
+            curseforge_id,
             offline,
         } => commands::init::run(commands::init::InitOptions {
             dir,
@@ -125,6 +140,9 @@ fn main() {
             loaders,
             ci,
             server,
+            publishing,
+            modrinth_id,
+            curseforge_id,
             offline,
         }),
         Commands::Add { feature, dir } => commands::add::run(&feature, &dir),

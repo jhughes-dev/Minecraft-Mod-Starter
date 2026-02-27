@@ -10,6 +10,8 @@ pub struct McmodConfig {
     pub loaders: Loaders,
     pub features: Features,
     pub versions: Versions,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publishing: Option<Publishing>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -31,6 +33,15 @@ pub struct Loaders {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Features {
     pub ci: bool,
+    #[serde(default)]
+    pub publishing: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Publishing {
+    pub modrinth_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curseforge_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -52,6 +63,7 @@ impl McmodConfig {
         fabric: bool,
         neoforge: bool,
         ci: bool,
+        publishing: Option<Publishing>,
         versions: Versions,
     ) -> Self {
         Self {
@@ -64,8 +76,12 @@ impl McmodConfig {
                 language,
             },
             loaders: Loaders { fabric, neoforge },
-            features: Features { ci },
+            features: Features {
+                ci,
+                publishing: publishing.is_some(),
+            },
             versions,
+            publishing,
         }
     }
 
@@ -134,6 +150,7 @@ mod tests {
             true,
             true,
             false,
+            None,
             Versions::default(),
         );
 
@@ -159,6 +176,7 @@ mod tests {
             true,
             false,
             false,
+            None,
             Versions::default(),
         );
         assert_eq!(config.enabled_platforms(), vec!["fabric"]);
@@ -173,6 +191,7 @@ mod tests {
             true,
             true,
             false,
+            None,
             Versions::default(),
         );
         assert_eq!(config2.enabled_platforms(), vec!["fabric", "neoforge"]);

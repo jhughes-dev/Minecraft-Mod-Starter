@@ -86,6 +86,9 @@ pub struct InitOptions {
     pub loaders: Vec<String>,
     pub ci: Option<bool>,
     pub server: Option<bool>,
+    pub publishing: Option<bool>,
+    pub modrinth_id: Option<String>,
+    pub curseforge_id: Option<String>,
     pub offline: bool,
 }
 
@@ -196,6 +199,36 @@ pub fn run(opts: InitOptions) -> Result<()> {
         false
     };
 
+    // Publishing prompts
+    let publishing_enabled = if let Some(p) = opts.publishing {
+        p
+    } else if interactive {
+        prompt_confirm("Enable Modrinth/CurseForge publishing?", false)?
+    } else {
+        false
+    };
+
+    let (modrinth_id, curseforge_id) = if publishing_enabled {
+        let mr_id = if let Some(id) = opts.modrinth_id {
+            id
+        } else if interactive {
+            prompt_input("Modrinth project slug", &mod_id)?
+        } else {
+            mod_id.clone()
+        };
+        let cf_id = if let Some(id) = opts.curseforge_id {
+            if id.is_empty() { None } else { Some(id) }
+        } else if interactive {
+            let input = prompt_input("CurseForge project ID (leave blank to skip)", "")?;
+            if input.is_empty() { None } else { Some(input) }
+        } else {
+            None
+        };
+        (Some(mr_id), cf_id)
+    } else {
+        (None, None)
+    };
+
     let offline = opts.offline;
 
     // Fetch versions
@@ -221,6 +254,8 @@ pub fn run(opts: InitOptions) -> Result<()> {
         &versions.fabric_api,
         &versions.neoforge,
         &enabled_platforms,
+        modrinth_id.as_deref(),
+        curseforge_id.as_deref(),
     );
 
     // Create project directory
@@ -279,6 +314,27 @@ pub fn run(opts: InitOptions) -> Result<()> {
         println!("{}", "  Created .github/workflows/build.yml".green());
     }
 
+    // Write publishing files
+    let publishing_config = if publishing_enabled {
+        let mr_id = modrinth_id.as_deref().unwrap_or(&mod_id);
+        add::add_publishing_files(
+            project_dir,
+            &vars,
+            has_fabric,
+            has_neoforge,
+            curseforge_id.is_some(),
+        )?;
+        println!("{}", "  Created .github/workflows/release.yml".green());
+        println!("{}", "  Created changelogs/v1.0.0.md".green());
+        println!("{}", "  Created MODPAGE.md".green());
+        Some(crate::config::Publishing {
+            modrinth_id: mr_id.to_string(),
+            curseforge_id: curseforge_id.clone(),
+        })
+    } else {
+        None
+    };
+
     // Write mcmod.toml
     let config = McmodConfig::new(
         mod_id.clone(),
@@ -290,6 +346,7 @@ pub fn run(opts: InitOptions) -> Result<()> {
         has_fabric,
         has_neoforge,
         ci,
+        publishing_config,
         versions,
     );
     config.save(project_dir)?;

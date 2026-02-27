@@ -28,6 +28,7 @@ pub const TMPL_NEOFORGE_MOD_KT: &str = include_str!("../templates/neoforge/NeoFo
 pub const TMPL_NEOFORGE_MODS_TOML: &str = include_str!("../templates/neoforge/neoforge.mods.toml");
 
 pub const TMPL_CI_BUILD_YML: &str = include_str!("../templates/ci/build.yml");
+pub const TMPL_CI_RELEASE_YML: &str = include_str!("../templates/ci/release.yml");
 
 // Binary templates (include_bytes!)
 pub const GRADLE_WRAPPER_JAR: &[u8] =
@@ -61,6 +62,8 @@ pub fn build_vars(
     fabric_api_version: &str,
     neoforge_version: &str,
     enabled_platforms: &str,
+    modrinth_id: Option<&str>,
+    curseforge_id: Option<&str>,
 ) -> HashMap<String, String> {
     let mut vars = HashMap::new();
     vars.insert("mod_id".to_string(), mod_id.to_string());
@@ -99,7 +102,60 @@ pub fn build_vars(
         "enabled_platforms".to_string(),
         enabled_platforms.to_string(),
     );
+    if let Some(id) = modrinth_id {
+        vars.insert("modrinth_id".to_string(), id.to_string());
+    }
+    if let Some(id) = curseforge_id {
+        vars.insert("curseforge_id".to_string(), id.to_string());
+    }
     vars
+}
+
+/// Strip conditional blocks from rendered template content.
+///
+/// Blocks are delimited by `{{#name}}...{{/name}}` markers (each on its own line).
+/// If a condition is true the markers are removed but the content is kept.
+/// If false the entire block (markers + content) is removed.
+pub fn strip_conditional_blocks(content: &str, conditions: &[(&str, bool)]) -> String {
+    let mut result = content.to_string();
+    for &(name, enabled) in conditions {
+        let open = format!("{{{{#{}}}}}", name);
+        let close = format!("{{{{/{}}}}}", name);
+
+        if enabled {
+            // Keep content, remove markers (and their surrounding newline)
+            result = result.replace(&format!("{open}\n"), "");
+            result = result.replace(&format!("{close}\n"), "");
+            // Handle markers without trailing newline (e.g. at end of file)
+            result = result.replace(&open, "");
+            result = result.replace(&close, "");
+        } else {
+            // Remove entire block including markers
+            let mut out = String::new();
+            let mut skip = false;
+            for line in result.lines() {
+                let trimmed = line.trim();
+                if trimmed == open {
+                    skip = true;
+                    continue;
+                }
+                if trimmed == close {
+                    skip = false;
+                    continue;
+                }
+                if !skip {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            result = out;
+        }
+    }
+    // Collapse 3+ consecutive blank lines into 2
+    while result.contains("\n\n\n") {
+        result = result.replace("\n\n\n", "\n\n");
+    }
+    result
 }
 
 fn chrono_year() -> String {
@@ -140,5 +196,32 @@ mod tests {
         let mut vars = HashMap::new();
         vars.insert("x".to_string(), "A".to_string());
         assert_eq!(render("{{x}} and {{x}}", &vars), "A and A");
+    }
+
+    #[test]
+    fn test_strip_conditional_blocks_enabled() {
+        let input = "before\n{{#fabric}}\nfabric content\n{{/fabric}}\nafter\n";
+        let result = strip_conditional_blocks(input, &[("fabric", true)]);
+        assert!(result.contains("fabric content"));
+        assert!(!result.contains("{{#fabric}}"));
+        assert!(!result.contains("{{/fabric}}"));
+    }
+
+    #[test]
+    fn test_strip_conditional_blocks_disabled() {
+        let input = "before\n{{#curseforge}}\ncurseforge content\n{{/curseforge}}\nafter\n";
+        let result = strip_conditional_blocks(input, &[("curseforge", false)]);
+        assert!(!result.contains("curseforge content"));
+        assert!(result.contains("before"));
+        assert!(result.contains("after"));
+    }
+
+    #[test]
+    fn test_strip_conditional_blocks_nested() {
+        let input = "{{#fabric}}\nouter\n{{#curseforge}}\ninner\n{{/curseforge}}\nrest\n{{/fabric}}\n";
+        let result = strip_conditional_blocks(input, &[("fabric", true), ("curseforge", false)]);
+        assert!(result.contains("outer"));
+        assert!(!result.contains("inner"));
+        assert!(result.contains("rest"));
     }
 }

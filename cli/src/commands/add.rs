@@ -14,8 +14,9 @@ pub fn run(feature: &str, dir: &Path) -> Result<()> {
         "neoforge" => run_add_neoforge(dir),
         "ci" => run_add_ci(dir),
         "kotlin" => run_add_kotlin(dir),
+        "publishing" => run_add_publishing(dir),
         _ => Err(McmodError::Other(format!(
-            "Unknown feature: {feature}. Valid features: fabric, neoforge, ci, kotlin"
+            "Unknown feature: {feature}. Valid features: fabric, neoforge, ci, kotlin, publishing"
         ))),
     }
 }
@@ -150,6 +151,100 @@ fn run_add_kotlin(dir: &Path) -> Result<()> {
     config.save(dir)?;
 
     println!("{}", "  Kotlin migration completed successfully!".bold().green());
+    Ok(())
+}
+
+fn run_add_publishing(dir: &Path) -> Result<()> {
+    println!("{}", "\n  mcmod add publishing\n".bold().cyan());
+    let mut config = McmodConfig::load(dir)?;
+
+    if config.features.publishing {
+        return Err(McmodError::AlreadyEnabled("publishing".to_string()));
+    }
+
+    let modrinth_id: String = dialoguer::Input::new()
+        .with_prompt("  Modrinth project slug")
+        .default(config.mod_info.mod_id.clone())
+        .interact_text()
+        .map_err(|e| McmodError::Other(e.to_string()))?;
+
+    let cf_input: String = dialoguer::Input::new()
+        .with_prompt("  CurseForge project ID (leave blank to skip)")
+        .default(String::new())
+        .interact_text()
+        .map_err(|e| McmodError::Other(e.to_string()))?;
+    let curseforge_id = if cf_input.is_empty() {
+        None
+    } else {
+        Some(cf_input)
+    };
+
+    let mut vars = build_vars_from_config(&config);
+    vars.insert("modrinth_id".to_string(), modrinth_id.clone());
+    if let Some(ref id) = curseforge_id {
+        vars.insert("curseforge_id".to_string(), id.clone());
+    }
+
+    add_publishing_files(
+        dir,
+        &vars,
+        config.loaders.fabric,
+        config.loaders.neoforge,
+        curseforge_id.is_some(),
+    )?;
+
+    // Add version_type to gradle.properties if missing
+    gradle::set_gradle_property(dir, "version_type", "release")?;
+
+    // Update config
+    config.features.publishing = true;
+    config.publishing = Some(crate::config::Publishing {
+        modrinth_id,
+        curseforge_id,
+    });
+    config.save(dir)?;
+
+    println!("{}", "  Publishing support added successfully!".bold().green());
+    Ok(())
+}
+
+/// Create publishing files (used by both init and add).
+pub fn add_publishing_files(
+    dir: &Path,
+    vars: &HashMap<String, String>,
+    has_fabric: bool,
+    has_neoforge: bool,
+    has_curseforge: bool,
+) -> Result<()> {
+    // Render and strip conditional blocks from release.yml
+    let rendered = render(template::TMPL_CI_RELEASE_YML, vars);
+    let stripped = template::strip_conditional_blocks(
+        &rendered,
+        &[
+            ("fabric", has_fabric),
+            ("neoforge", has_neoforge),
+            ("curseforge", has_curseforge),
+        ],
+    );
+    write_file(&dir.join(".github/workflows/release.yml"), &stripped)?;
+
+    // Starter changelog
+    write_file(
+        &dir.join("changelogs/v1.0.0.md"),
+        "Initial release.\n",
+    )?;
+
+    // Starter MODPAGE.md
+    let mod_name = vars.get("mod_name").map(|s| s.as_str()).unwrap_or("My Mod");
+    let description = vars
+        .get("description")
+        .map(|s| s.as_str())
+        .unwrap_or("A Minecraft mod");
+    write_file(
+        &dir.join("MODPAGE.md"),
+        &format!("# {mod_name}\n\n{description}\n"),
+    )?;
+
     Ok(())
 }
 
@@ -345,5 +440,10 @@ fn build_vars_from_config(config: &McmodConfig) -> HashMap<String, String> {
         &config.versions.fabric_api,
         &config.versions.neoforge,
         &config.enabled_platforms().join(","),
+        config.publishing.as_ref().map(|p| p.modrinth_id.as_str()),
+        config
+            .publishing
+            .as_ref()
+            .and_then(|p| p.curseforge_id.as_deref()),
     )
 }

@@ -1,6 +1,8 @@
 use crate::error::{McmodError, Result};
+use crate::global_config;
 use colored::Colorize;
 use std::io::Read;
+use std::path::Path;
 
 const GITHUB_RELEASES_URL: &str =
     "https://api.github.com/repos/jhughes-dev/Minecraft-Mod-Starter/releases/latest";
@@ -34,12 +36,51 @@ pub fn run() -> Result<()> {
     println!("{}", format!("  Downloading {asset_name}...").cyan());
     let binary = http_get_bytes(&download_url)?;
 
-    replace_binary(&binary)?;
+    let target = global_config::install_path()?;
+    install_binary(&target, &binary)?;
 
     println!(
         "{}",
         format!("  Updated mcmod: v{current_version} → v{latest_version}").green()
     );
+
+    // If running from a different location, let the user know where the binary was installed
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Ok(current_canon) = current_exe.canonicalize() {
+            let target_matches = target
+                .canonicalize()
+                .map(|t| t == current_canon)
+                .unwrap_or(false);
+            if !target_matches {
+                println!(
+                    "{}",
+                    format!("  Installed to: {}", target.display()).cyan()
+                );
+                println!(
+                    "{}",
+                    format!(
+                        "  Note: you are running from {}",
+                        current_exe.display()
+                    )
+                    .dimmed()
+                );
+            }
+        }
+    }
+
+    // Warn if the install directory isn't on PATH
+    if let Ok(dir) = global_config::install_dir() {
+        if !global_config::is_on_path(&dir) {
+            println!(
+                "{}",
+                format!(
+                    "  Warning: {} is not on your PATH",
+                    dir.display()
+                )
+                .yellow()
+            );
+        }
+    }
 
     Ok(())
 }
@@ -104,19 +145,21 @@ fn get_asset_name() -> Result<String> {
     Ok(name.to_string())
 }
 
-fn replace_binary(new_binary: &[u8]) -> Result<()> {
-    let current_exe = std::env::current_exe()
-        .map_err(|e| McmodError::Other(format!("Cannot determine current exe path: {e}")))?;
+fn install_binary(target: &Path, new_binary: &[u8]) -> Result<()> {
+    // Ensure the install directory exists
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
 
     if cfg!(unix) {
-        replace_binary_unix(&current_exe, new_binary)
+        install_binary_unix(target, new_binary)
     } else {
-        replace_binary_windows(&current_exe, new_binary)
+        install_binary_windows(target, new_binary)
     }
 }
 
-fn replace_binary_unix(current_exe: &std::path::Path, new_binary: &[u8]) -> Result<()> {
-    let temp_path = current_exe.with_extension("new");
+fn install_binary_unix(target: &Path, new_binary: &[u8]) -> Result<()> {
+    let temp_path = target.with_extension("new");
 
     std::fs::write(&temp_path, new_binary)?;
 
@@ -128,31 +171,36 @@ fn replace_binary_unix(current_exe: &std::path::Path, new_binary: &[u8]) -> Resu
     }
 
     // Atomic rename
-    std::fs::rename(&temp_path, current_exe)?;
+    std::fs::rename(&temp_path, target)?;
 
     Ok(())
 }
 
-fn replace_binary_windows(current_exe: &std::path::Path, new_binary: &[u8]) -> Result<()> {
-    let old_path = current_exe.with_extension("exe.old");
+fn install_binary_windows(target: &Path, new_binary: &[u8]) -> Result<()> {
+    let old_path = target.with_extension("exe.old");
 
     // Clean up any leftover old file from a previous update
     if old_path.exists() {
         let _ = std::fs::remove_file(&old_path);
     }
 
-    // Rename current exe out of the way
-    std::fs::rename(current_exe, &old_path)?;
+    if target.exists() {
+        // Rename current exe out of the way
+        std::fs::rename(target, &old_path)?;
 
-    // Write new binary
-    if let Err(e) = std::fs::write(current_exe, new_binary) {
-        // Try to restore the old binary
-        let _ = std::fs::rename(&old_path, current_exe);
-        return Err(e.into());
+        // Write new binary
+        if let Err(e) = std::fs::write(target, new_binary) {
+            // Try to restore the old binary
+            let _ = std::fs::rename(&old_path, target);
+            return Err(e.into());
+        }
+
+        // Clean up old binary
+        let _ = std::fs::remove_file(&old_path);
+    } else {
+        // Target doesn't exist yet (first update without install script)
+        std::fs::write(target, new_binary)?;
     }
-
-    // Clean up old binary
-    let _ = std::fs::remove_file(&old_path);
 
     Ok(())
 }
