@@ -77,6 +77,10 @@ enum Commands {
         #[arg(long)]
         curseforge_id: Option<String>,
 
+        /// Enable unit tests and GameTest scaffolding
+        #[arg(long)]
+        testing: Option<bool>,
+
         /// Skip online version fetching, use defaults
         #[arg(long)]
         offline: bool,
@@ -134,6 +138,7 @@ fn main() {
             publishing,
             modrinth_id,
             curseforge_id,
+            testing,
             offline,
             force,
         } => commands::init::run(commands::init::InitOptions {
@@ -150,6 +155,7 @@ fn main() {
             publishing,
             modrinth_id,
             curseforge_id,
+            testing,
             offline,
             force,
         }),

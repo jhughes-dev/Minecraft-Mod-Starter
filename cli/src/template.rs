@@ -28,6 +28,15 @@ pub const TMPL_NEOFORGE_MOD_JAVA: &str = include_str!("../templates/neoforge/Neo
 pub const TMPL_NEOFORGE_MOD_KT: &str = include_str!("../templates/neoforge/NeoForgeMod.kt");
 pub const TMPL_NEOFORGE_MODS_TOML: &str = include_str!("../templates/neoforge/neoforge.mods.toml");
 
+pub const TMPL_COMMON_TEST_JAVA: &str = include_str!("../templates/common/ExampleModTest.java");
+pub const TMPL_COMMON_TEST_KT: &str = include_str!("../templates/common/ExampleModTest.kt");
+pub const TMPL_FABRIC_GAMETEST_JAVA: &str = include_str!("../templates/fabric/FabricGameTest.java");
+pub const TMPL_FABRIC_GAMETEST_KT: &str = include_str!("../templates/fabric/FabricGameTest.kt");
+pub const TMPL_NEOFORGE_GAMETEST_JAVA: &str =
+    include_str!("../templates/neoforge/NeoForgeGameTest.java");
+pub const TMPL_NEOFORGE_GAMETEST_KT: &str =
+    include_str!("../templates/neoforge/NeoForgeGameTest.kt");
+
 pub const TMPL_CI_BUILD_YML: &str = include_str!("../templates/ci/build.yml");
 pub const TMPL_CI_RELEASE_YML: &str = include_str!("../templates/ci/release.yml");
 

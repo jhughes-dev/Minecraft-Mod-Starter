@@ -16,6 +16,7 @@ pub enum Feature {
     Ci,
     Kotlin,
     Publishing,
+    Testing,
 }
 
 /// Dispatch an `add` subcommand.
@@ -26,6 +27,7 @@ pub fn run(feature: &Feature, dir: &Path) -> Result<()> {
         Feature::Ci => run_add_ci(dir),
         Feature::Kotlin => run_add_kotlin(dir),
         Feature::Publishing => run_add_publishing(dir),
+        Feature::Testing => run_add_testing(dir),
     }
 }
 
@@ -213,6 +215,127 @@ fn run_add_publishing(dir: &Path) -> Result<()> {
     config.save(dir)?;
 
     println!("{}", "  Publishing support added successfully!".bold().green());
+    Ok(())
+}
+
+fn run_add_testing(dir: &Path) -> Result<()> {
+    println!("{}", "\n  mcmod add testing\n".bold().cyan());
+    let mut config = McmodConfig::load(dir)?;
+
+    if config.features.testing {
+        return Err(McmodError::AlreadyEnabled("testing".to_string()));
+    }
+
+    let vars = build_vars_from_config(&config);
+
+    add_testing_files(
+        dir,
+        &vars,
+        &config.mod_info.language,
+        config.loaders.fabric,
+        config.loaders.neoforge,
+    )?;
+
+    // Set testing_enabled in gradle.properties
+    gradle::set_gradle_property(dir, "testing_enabled", "true")?;
+
+    // Update config
+    config.features.testing = true;
+    config.save(dir)?;
+
+    println!("{}", "  Testing support added successfully!".bold().green());
+    Ok(())
+}
+
+/// Create testing files (used by both init and add).
+pub fn add_testing_files(
+    dir: &Path,
+    vars: &HashMap<String, String>,
+    language: &str,
+    has_fabric: bool,
+    has_neoforge: bool,
+) -> Result<()> {
+    let package_path = vars.get("package_path").unwrap();
+    let class_name = vars.get("class_name").unwrap();
+
+    let (test_tmpl, ext, source_dir) = if language == "kotlin" {
+        (template::TMPL_COMMON_TEST_KT, "kt", "kotlin")
+    } else {
+        (template::TMPL_COMMON_TEST_JAVA, "java", "java")
+    };
+
+    // Unit test in common/src/test/
+    write_file(
+        &dir.join(format!(
+            "common/src/test/{source_dir}/{package_path}/{class_name}Test.{ext}"
+        )),
+        &render(test_tmpl, vars)?,
+    )?;
+    println!("{}", "  Created common/ unit test".green());
+
+    // Fabric GameTest
+    if has_fabric {
+        let fabric_tmpl = if language == "kotlin" {
+            template::TMPL_FABRIC_GAMETEST_KT
+        } else {
+            template::TMPL_FABRIC_GAMETEST_JAVA
+        };
+        write_file(
+            &dir.join(format!(
+                "fabric/src/main/{source_dir}/{package_path}/fabric/{class_name}GameTest.{ext}"
+            )),
+            &render(fabric_tmpl, vars)?,
+        )?;
+
+        // Patch fabric.mod.json with gametest entrypoint
+        let package = vars.get("package").unwrap();
+        add_gametest_entrypoint(dir, package, class_name, language)?;
+        println!("{}", "  Created fabric/ GameTest".green());
+    }
+
+    // NeoForge GameTest
+    if has_neoforge {
+        let neoforge_tmpl = if language == "kotlin" {
+            template::TMPL_NEOFORGE_GAMETEST_KT
+        } else {
+            template::TMPL_NEOFORGE_GAMETEST_JAVA
+        };
+        write_file(
+            &dir.join(format!(
+                "neoforge/src/main/{source_dir}/{package_path}/neoforge/{class_name}GameTest.{ext}"
+            )),
+            &render(neoforge_tmpl, vars)?,
+        )?;
+        println!("{}", "  Created neoforge/ GameTest".green());
+    }
+
+    Ok(())
+}
+
+/// Patch fabric.mod.json to add the `fabric-gametest` entrypoint.
+fn add_gametest_entrypoint(
+    dir: &Path,
+    package: &str,
+    class_name: &str,
+    _language: &str,
+) -> Result<()> {
+    let path = dir.join("fabric/src/main/resources/fabric.mod.json");
+    let content = std::fs::read_to_string(&path)?;
+
+    // Parse as JSON, add the entrypoint, and re-serialize
+    let mut json: serde_json::Value = serde_json::from_str(&content)?;
+
+    if let Some(entrypoints) = json.get_mut("entrypoints").and_then(|e| e.as_object_mut()) {
+        let gametest_class = format!("{package}.fabric.{class_name}GameTest");
+        entrypoints.insert(
+            "fabric-gametest".to_string(),
+            serde_json::json!([gametest_class]),
+        );
+    }
+
+    // Write back with pretty formatting
+    let formatted = serde_json::to_string_pretty(&json)?;
+    std::fs::write(&path, formatted + "\n")?;
     Ok(())
 }
 

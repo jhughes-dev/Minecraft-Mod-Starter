@@ -89,6 +89,7 @@ pub struct InitOptions {
     pub publishing: Option<bool>,
     pub modrinth_id: Option<String>,
     pub curseforge_id: Option<String>,
+    pub testing: Option<bool>,
     pub offline: bool,
     pub force: bool,
 }
@@ -253,6 +254,14 @@ pub fn run(opts: InitOptions) -> Result<()> {
         (None, None)
     };
 
+    let testing = if let Some(t) = opts.testing {
+        t
+    } else if interactive {
+        prompt_confirm("Enable testing (unit tests + GameTest)?", true)?
+    } else {
+        true
+    };
+
     let offline = opts.offline;
 
     // Fetch versions
@@ -338,6 +347,12 @@ pub fn run(opts: InitOptions) -> Result<()> {
         println!("{}", "  Created .github/workflows/build.yml".green());
     }
 
+    // Write testing files
+    if testing {
+        add::add_testing_files(project_dir, &vars, &language, has_fabric, has_neoforge)?;
+        crate::gradle::set_gradle_property(project_dir, "testing_enabled", "true")?;
+    }
+
     // Write publishing files
     let publishing_config = if publishing_enabled {
         let mr_id = modrinth_id.as_deref().unwrap_or(&mod_id);
@@ -370,6 +385,7 @@ pub fn run(opts: InitOptions) -> Result<()> {
         has_fabric,
         has_neoforge,
         ci,
+        testing,
         publishing_config,
         versions,
     );
@@ -387,6 +403,7 @@ pub fn run(opts: InitOptions) -> Result<()> {
         format!("  Loaders:     {}", loaders.join(", ")).white()
     );
     println!("  {}", format!("  CI:          {ci}").white());
+    println!("  {}", format!("  Testing:     {testing}").white());
     println!();
     println!(
         "  {}",

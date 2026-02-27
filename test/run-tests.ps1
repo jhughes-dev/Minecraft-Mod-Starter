@@ -79,7 +79,8 @@ function Run-TestForLanguage($lang) {
             --package com.example.testmod --author TestAuthor `
             --description "A test mod" --language $lang `
             --loader fabric --loader neoforge `
-            --ci $ciFlag --server false --publishing false --offline
+            --ci $ciFlag --server false --publishing false `
+            --testing false --offline
         if ($LASTEXITCODE -ne 0) { throw "mcmod init failed" }
 
         $fail = $false

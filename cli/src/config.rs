@@ -35,6 +35,8 @@ pub struct Features {
     pub ci: bool,
     #[serde(default)]
     pub publishing: bool,
+    #[serde(default)]
+    pub testing: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -63,6 +65,7 @@ impl McmodConfig {
         fabric: bool,
         neoforge: bool,
         ci: bool,
+        testing: bool,
         publishing: Option<Publishing>,
         versions: Versions,
     ) -> Self {
@@ -79,6 +82,7 @@ impl McmodConfig {
             features: Features {
                 ci,
                 publishing: publishing.is_some(),
+                testing,
             },
             versions,
             publishing,
@@ -150,6 +154,7 @@ mod tests {
             true,
             true,
             false,
+            false,
             None,
             Versions::default(),
         );
@@ -176,6 +181,7 @@ mod tests {
             true,
             false,
             false,
+            false,
             None,
             Versions::default(),
         );
@@ -190,6 +196,7 @@ mod tests {
             "java".to_string(),
             true,
             true,
+            false,
             false,
             None,
             Versions::default(),
