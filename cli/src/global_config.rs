@@ -1,4 +1,5 @@
 use crate::error::{McmodError, Result};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -92,8 +93,16 @@ impl GlobalConfig {
             return Ok(Self::default());
         }
         let content = std::fs::read_to_string(&path)?;
-        let config: GlobalConfig =
-            toml::from_str(&content).unwrap_or_default();
+        let config: GlobalConfig = match toml::from_str(&content) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!(
+                    "{}",
+                    format!("  Warning: Could not parse {}: {e}; using defaults", path.display()).yellow()
+                );
+                Self::default()
+            }
+        };
         Ok(config)
     }
 

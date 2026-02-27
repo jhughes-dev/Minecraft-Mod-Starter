@@ -5,6 +5,13 @@ on:
   pull_request:
     branches: [main]
 jobs:
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --manifest-path cli/Cargo.toml
+
   build:
     runs-on: ubuntu-latest
     steps:

@@ -1,5 +1,6 @@
 use crate::config::Versions;
 use crate::error::McmodError;
+use crate::util::http_get;
 use colored::Colorize;
 
 /// Fetch the latest versions from online APIs, falling back to defaults on failure.
@@ -60,14 +61,18 @@ pub fn fetch_versions(offline: bool) -> Versions {
     }
 }
 
-fn http_get(url: &str) -> Result<String, McmodError> {
-    let body = ureq::get(url)
-        .call()
-        .map_err(|e| McmodError::Http(format!("{e}")))?
-        .into_body()
-        .read_to_string()
-        .map_err(|e| McmodError::Http(format!("{e}")))?;
-    Ok(body)
+/// Parse `<version>` tags from Maven metadata XML, returning all version strings.
+fn parse_maven_versions(xml: &str) -> Vec<String> {
+    xml.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("<version>") && trimmed.ends_with("</version>") {
+                Some(trimmed[9..trimmed.len() - 10].to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Fetch latest stable Minecraft version from Fabric Meta API.
@@ -110,18 +115,10 @@ fn fetch_fabric_api_version(mc_version: &str) -> Result<String, McmodError> {
     let body = http_get(url)?;
     let suffix = format!("+{mc_version}");
 
-    // Parse XML to find versions matching the MC version
-    // The XML has <versioning><versions><version>...</version></versions></versioning>
-    let mut matching = Vec::new();
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("<version>") && trimmed.ends_with("</version>") {
-            let version = &trimmed[9..trimmed.len() - 10];
-            if version.ends_with(&suffix) {
-                matching.push(version.to_string());
-            }
-        }
-    }
+    let matching: Vec<String> = parse_maven_versions(&body)
+        .into_iter()
+        .filter(|v| v.ends_with(&suffix))
+        .collect();
 
     matching
         .last()
@@ -147,16 +144,10 @@ fn fetch_neoforge_version(mc_version: &str) -> Result<String, McmodError> {
         )));
     };
 
-    let mut matching = Vec::new();
-    for line in body.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("<version>") && trimmed.ends_with("</version>") {
-            let version = &trimmed[9..trimmed.len() - 10];
-            if version.starts_with(&prefix) {
-                matching.push(version.to_string());
-            }
-        }
-    }
+    let matching: Vec<String> = parse_maven_versions(&body)
+        .into_iter()
+        .filter(|v| v.starts_with(&prefix))
+        .collect();
 
     matching
         .last()

@@ -1,4 +1,5 @@
 use crate::error::{McmodError, Result};
+use std::io::Read;
 use std::path::Path;
 
 /// Validates a mod ID: must match ^[a-z][a-z0-9_]*$
@@ -93,6 +94,34 @@ pub fn write_binary(path: &Path, content: &[u8]) -> Result<()> {
     }
     std::fs::write(path, content)?;
     Ok(())
+}
+
+/// Perform an HTTP GET request and return the response body as a string.
+pub fn http_get(url: &str) -> Result<String> {
+    let body = ureq::get(url)
+        .header("User-Agent", "mcmod-cli")
+        .call()
+        .map_err(|e| McmodError::Http(format!("{e}")))?
+        .into_body()
+        .read_to_string()
+        .map_err(|e| McmodError::Http(format!("{e}")))?;
+    Ok(body)
+}
+
+/// Perform an HTTP GET request and return the response body as bytes.
+pub fn http_get_bytes(url: &str) -> Result<Vec<u8>> {
+    let response = ureq::get(url)
+        .header("User-Agent", "mcmod-cli")
+        .call()
+        .map_err(|e| McmodError::Http(format!("{e}")))?;
+
+    let mut bytes = Vec::new();
+    response
+        .into_body()
+        .as_reader()
+        .read_to_end(&mut bytes)
+        .map_err(|e| McmodError::Http(format!("{e}")))?;
+    Ok(bytes)
 }
 
 #[cfg(test)]

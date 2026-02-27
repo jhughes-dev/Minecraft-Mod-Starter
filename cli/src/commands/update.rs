@@ -1,7 +1,7 @@
 use crate::error::{McmodError, Result};
 use crate::global_config;
+use crate::util::{http_get, http_get_bytes};
 use colored::Colorize;
-use std::io::Read;
 use std::path::Path;
 
 const GITHUB_RELEASES_URL: &str =
@@ -205,28 +205,3 @@ fn install_binary_windows(target: &Path, new_binary: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn http_get(url: &str) -> Result<String> {
-    let body = ureq::get(url)
-        .header("User-Agent", "mcmod-cli")
-        .call()
-        .map_err(|e| McmodError::Http(format!("{e}")))?
-        .into_body()
-        .read_to_string()
-        .map_err(|e| McmodError::Http(format!("{e}")))?;
-    Ok(body)
-}
-
-fn http_get_bytes(url: &str) -> Result<Vec<u8>> {
-    let response = ureq::get(url)
-        .header("User-Agent", "mcmod-cli")
-        .call()
-        .map_err(|e| McmodError::Http(format!("{e}")))?;
-
-    let mut bytes = Vec::new();
-    response
-        .into_body()
-        .as_reader()
-        .read_to_end(&mut bytes)
-        .map_err(|e| McmodError::Http(format!("{e}")))?;
-    Ok(bytes)
-}

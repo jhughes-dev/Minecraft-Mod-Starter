@@ -48,51 +48,54 @@ pub fn render(template: &str, vars: &HashMap<String, String>) -> String {
     result
 }
 
-/// Build the standard set of template variables from config values.
-pub fn build_vars(
-    mod_id: &str,
-    mod_name: &str,
-    package: &str,
-    class_name: &str,
-    author: &str,
-    description: &str,
-    language: &str,
-    minecraft_version: &str,
-    fabric_loader_version: &str,
-    fabric_api_version: &str,
-    neoforge_version: &str,
-    enabled_platforms: &str,
-    modrinth_id: Option<&str>,
-    curseforge_id: Option<&str>,
-) -> HashMap<String, String> {
+/// All the values needed to render templates.
+pub struct TemplateVars<'a> {
+    pub mod_id: &'a str,
+    pub mod_name: &'a str,
+    pub package: &'a str,
+    pub class_name: &'a str,
+    pub author: &'a str,
+    pub description: &'a str,
+    pub language: &'a str,
+    pub minecraft_version: &'a str,
+    pub fabric_loader_version: &'a str,
+    pub fabric_api_version: &'a str,
+    pub neoforge_version: &'a str,
+    pub enabled_platforms: &'a str,
+    pub modrinth_id: Option<&'a str>,
+    pub curseforge_id: Option<&'a str>,
+}
+
+/// Build the standard set of template variables from a `TemplateVars` struct.
+pub fn build_vars(tv: &TemplateVars) -> HashMap<String, String> {
     let mut vars = HashMap::new();
-    vars.insert("mod_id".to_string(), mod_id.to_string());
-    vars.insert("mod_name".to_string(), mod_name.to_string());
-    vars.insert("package".to_string(), package.to_string());
+    vars.insert("mod_id".to_string(), tv.mod_id.to_string());
+    vars.insert("mod_name".to_string(), tv.mod_name.to_string());
+    vars.insert("package".to_string(), tv.package.to_string());
     vars.insert(
         "package_path".to_string(),
-        crate::util::package_to_path(package),
+        crate::util::package_to_path(tv.package),
     );
-    vars.insert("class_name".to_string(), class_name.to_string());
-    vars.insert("author".to_string(), author.to_string());
-    vars.insert("description".to_string(), description.to_string());
-    vars.insert("language".to_string(), language.to_string());
+    vars.insert("class_name".to_string(), tv.class_name.to_string());
+    vars.insert("author".to_string(), tv.author.to_string());
+    vars.insert("description".to_string(), tv.description.to_string());
+    vars.insert("language".to_string(), tv.language.to_string());
     vars.insert(
         "minecraft_version".to_string(),
-        minecraft_version.to_string(),
+        tv.minecraft_version.to_string(),
     );
     vars.insert(
         "fabric_loader_version".to_string(),
-        fabric_loader_version.to_string(),
+        tv.fabric_loader_version.to_string(),
     );
     vars.insert(
         "fabric_api_version".to_string(),
-        fabric_api_version.to_string(),
+        tv.fabric_api_version.to_string(),
     );
-    vars.insert("neoforge_version".to_string(), neoforge_version.to_string());
+    vars.insert("neoforge_version".to_string(), tv.neoforge_version.to_string());
     vars.insert(
         "neoforge_major".to_string(),
-        crate::util::neoforge_major(neoforge_version),
+        crate::util::neoforge_major(tv.neoforge_version),
     );
     vars.insert(
         "year".to_string(),
@@ -100,12 +103,12 @@ pub fn build_vars(
     );
     vars.insert(
         "enabled_platforms".to_string(),
-        enabled_platforms.to_string(),
+        tv.enabled_platforms.to_string(),
     );
-    if let Some(id) = modrinth_id {
+    if let Some(id) = tv.modrinth_id {
         vars.insert("modrinth_id".to_string(), id.to_string());
     }
-    if let Some(id) = curseforge_id {
+    if let Some(id) = tv.curseforge_id {
         vars.insert("curseforge_id".to_string(), id.to_string());
     }
     vars

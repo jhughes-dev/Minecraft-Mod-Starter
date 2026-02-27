@@ -241,22 +241,22 @@ pub fn run(opts: InitOptions) -> Result<()> {
 
     let enabled_platforms = loaders.join(",");
 
-    let vars = template::build_vars(
-        &mod_id,
-        &mod_name,
-        &package,
-        &class_name,
-        &author,
-        &description,
-        &language,
-        &versions.minecraft,
-        &versions.fabric_loader,
-        &versions.fabric_api,
-        &versions.neoforge,
-        &enabled_platforms,
-        modrinth_id.as_deref(),
-        curseforge_id.as_deref(),
-    );
+    let vars = template::build_vars(&template::TemplateVars {
+        mod_id: &mod_id,
+        mod_name: &mod_name,
+        package: &package,
+        class_name: &class_name,
+        author: &author,
+        description: &description,
+        language: &language,
+        minecraft_version: &versions.minecraft,
+        fabric_loader_version: &versions.fabric_loader,
+        fabric_api_version: &versions.fabric_api,
+        neoforge_version: &versions.neoforge,
+        enabled_platforms: &enabled_platforms,
+        modrinth_id: modrinth_id.as_deref(),
+        curseforge_id: curseforge_id.as_deref(),
+    });
 
     // Create project directory
     let project_dir = &opts.dir;

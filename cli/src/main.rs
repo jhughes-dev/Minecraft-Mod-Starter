@@ -83,7 +83,7 @@ enum Commands {
     /// Add a feature to an existing project
     Add {
         /// Feature to add: fabric, neoforge, ci, kotlin, publishing
-        feature: String,
+        feature: commands::add::Feature,
 
         /// Project directory (default: current directory)
         #[arg(long, default_value = ".")]
