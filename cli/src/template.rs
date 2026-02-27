@@ -57,14 +57,17 @@ pub fn render(template: &str, vars: &HashMap<String, String>) -> Result<String> 
         result = result.replace(&placeholder, value);
     }
 
-    // Check for unreplaced placeholders (but not conditional block markers like {{#name}}/{{/name}})
+    // Check for unreplaced placeholders (but not conditional block markers like {{#name}}/{{/name}}
+    // and not GitHub Actions expressions like ${{ ... }})
     let mut pos = 0;
     while let Some(start) = result[pos..].find("{{") {
         let abs_start = pos + start;
         if let Some(end) = result[abs_start..].find("}}") {
             let inner = &result[abs_start + 2..abs_start + end];
             // Skip conditional block markers ({{#...}} and {{/...}})
-            if !inner.starts_with('#') && !inner.starts_with('/') {
+            // Skip GitHub Actions expressions (${{...}})
+            let is_gha = abs_start > 0 && result.as_bytes()[abs_start - 1] == b'$';
+            if !inner.starts_with('#') && !inner.starts_with('/') && !is_gha {
                 return Err(McmodError::Other(format!(
                     "Unreplaced template placeholder: {{{{{}}}}}",
                     inner
@@ -258,6 +261,13 @@ mod tests {
     fn test_render_ignores_conditional_blocks() {
         let vars = HashMap::new();
         let result = render("{{#fabric}}\ncontent\n{{/fabric}}", &vars);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_render_ignores_github_actions_expressions() {
+        let vars = HashMap::new();
+        let result = render("run: echo ${{ github.event.inputs.version_type }}", &vars);
         assert!(result.is_ok());
     }
 
