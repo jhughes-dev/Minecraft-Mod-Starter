@@ -41,7 +41,8 @@ jobs:
             --package com.example.testmod --author TestAuthor \
             --description "A test mod" --language ${{ matrix.language }} \
             --loader fabric --loader neoforge \
-            --ci false --server false --publishing false --offline
+            --ci false --server false --publishing false \
+            --testing false --offline
 
       - name: Verify gradle.properties
         run: |
@@ -143,7 +144,8 @@ jobs:
             --package com.example.testmod --author TestAuthor \
             --description "A test mod" --language ${{ matrix.language }} \
             --loader fabric --loader neoforge \
-            --ci true --server false --publishing false --offline
+            --ci true --server false --publishing false \
+            --testing false --offline
 
       - name: Verify build.yml exists
         run: test -f /tmp/testmod/.github/workflows/build.yml
