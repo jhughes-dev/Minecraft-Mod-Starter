@@ -1,6 +1,7 @@
 use crate::error::{McmodError, Result};
 use std::io::Read;
 use std::path::Path;
+use std::time::Duration;
 
 /// Validates a mod ID: must match ^[a-z][a-z0-9_]*$
 pub fn validate_mod_id(id: &str) -> Result<()> {
@@ -96,9 +97,17 @@ pub fn write_binary(path: &Path, content: &[u8]) -> Result<()> {
     Ok(())
 }
 
+fn http_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(10)))
+        .build()
+        .into()
+}
+
 /// Perform an HTTP GET request and return the response body as a string.
 pub fn http_get(url: &str) -> Result<String> {
-    let body = ureq::get(url)
+    let body = http_agent()
+        .get(url)
         .header("User-Agent", "mcmod-cli")
         .call()
         .map_err(|e| McmodError::Http(format!("{e}")))?
@@ -110,13 +119,12 @@ pub fn http_get(url: &str) -> Result<String> {
 
 /// Perform an HTTP GET request and return the response body as bytes.
 pub fn http_get_bytes(url: &str) -> Result<Vec<u8>> {
-    let response = ureq::get(url)
+    let mut bytes = Vec::new();
+    http_agent()
+        .get(url)
         .header("User-Agent", "mcmod-cli")
         .call()
-        .map_err(|e| McmodError::Http(format!("{e}")))?;
-
-    let mut bytes = Vec::new();
-    response
+        .map_err(|e| McmodError::Http(format!("{e}")))?
         .into_body()
         .as_reader()
         .read_to_end(&mut bytes)

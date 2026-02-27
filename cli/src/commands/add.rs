@@ -225,7 +225,7 @@ pub fn add_publishing_files(
     has_curseforge: bool,
 ) -> Result<()> {
     // Render and strip conditional blocks from release.yml
-    let rendered = render(template::TMPL_CI_RELEASE_YML, vars);
+    let rendered = render(template::TMPL_CI_RELEASE_YML, vars)?;
     let stripped = template::strip_conditional_blocks(
         &rendered,
         &[
@@ -280,7 +280,7 @@ fn migrate_to_kotlin(
     let kt_path = dir.join(format!(
         "{module}/src/main/kotlin/{source_package_path}/{source_class_name}.kt"
     ));
-    write_file(&kt_path, &render(kt_template, vars))?;
+    write_file(&kt_path, &render(kt_template, vars)?)?;
 
     // If this is fabric, ensure mixin package-info.java stays in java tree
     if let Some((pkg_path, _)) = mixin_info {
@@ -290,7 +290,7 @@ fn migrate_to_kotlin(
         if !mixin_java_path.exists() {
             write_file(
                 &mixin_java_path,
-                &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars),
+                &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars)?,
             )?;
         }
     }
@@ -351,13 +351,13 @@ pub fn add_fabric_files(
         &dir.join(format!(
             "fabric/src/main/{source_dir}/{package_path}/fabric/{class_name}Fabric.{ext}"
         )),
-        &render(tmpl, vars),
+        &render(tmpl, vars)?,
     )?;
 
     // fabric.mod.json
     write_file(
         &dir.join("fabric/src/main/resources/fabric.mod.json"),
-        &render(template::TMPL_FABRIC_MOD_JSON, vars),
+        &render(template::TMPL_FABRIC_MOD_JSON, vars)?,
     )?;
 
     // mixins.json
@@ -366,7 +366,7 @@ pub fn add_fabric_files(
         &dir.join(format!(
             "fabric/src/main/resources/{mod_id}.mixins.json"
         )),
-        &render(template::TMPL_FABRIC_MIXINS_JSON, vars),
+        &render(template::TMPL_FABRIC_MIXINS_JSON, vars)?,
     )?;
 
     // mixin package-info.java (always in java source tree, even for kotlin projects)
@@ -374,7 +374,7 @@ pub fn add_fabric_files(
         &dir.join(format!(
             "fabric/src/main/java/{package_path}/mixin/package-info.java"
         )),
-        &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars),
+        &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars)?,
     )?;
 
     Ok(())
@@ -411,13 +411,13 @@ pub fn add_neoforge_files(
         &dir.join(format!(
             "neoforge/src/main/{source_dir}/{package_path}/neoforge/{class_name}NeoForge.{ext}"
         )),
-        &render(tmpl, vars),
+        &render(tmpl, vars)?,
     )?;
 
     // neoforge.mods.toml
     write_file(
         &dir.join("neoforge/src/main/resources/META-INF/neoforge.mods.toml"),
-        &render(template::TMPL_NEOFORGE_MODS_TOML, vars),
+        &render(template::TMPL_NEOFORGE_MODS_TOML, vars)?,
     )?;
 
     Ok(())
@@ -427,7 +427,7 @@ pub fn add_neoforge_files(
 pub fn add_ci_files(dir: &Path, vars: &HashMap<String, String>) -> Result<()> {
     write_file(
         &dir.join(".github/workflows/build.yml"),
-        &render(template::TMPL_CI_BUILD_YML, vars),
+        &render(template::TMPL_CI_BUILD_YML, vars)?,
     )?;
     Ok(())
 }

@@ -176,7 +176,7 @@ impl GlobalConfig {
                 self.gamerules.do_weather_cycle = Some(parse_bool(value)?);
             }
             "gamerules.time_of_day" => {
-                validate_time_of_day(value)?;
+                crate::pack_format::validate_time_of_day(value)?;
                 self.gamerules.time_of_day = Some(value.to_lowercase());
             }
             _ => {
@@ -285,89 +285,6 @@ fn parse_bool(value: &str) -> Result<bool> {
     }
 }
 
-/// Validate a time-of-day value. Accepts named times or raw tick numbers.
-fn validate_time_of_day(value: &str) -> Result<()> {
-    let lower = value.to_lowercase();
-    match lower.as_str() {
-        "noon" | "day" | "midnight" | "night" | "sunrise" | "sunset" => Ok(()),
-        _ => {
-            // Accept raw tick number
-            value.parse::<u32>().map_err(|_| {
-                McmodError::Other(format!(
-                    "Invalid time '{value}': must be noon/day/midnight/night/sunrise/sunset or a tick number"
-                ))
-            })?;
-            Ok(())
-        }
-    }
-}
-
-/// Convert a time-of-day name to its Minecraft tick value for mcfunction commands.
-pub fn time_to_tick(time: &str) -> &str {
-    match time.to_lowercase().as_str() {
-        "noon" | "day" => "day",
-        "midnight" | "night" => "midnight",
-        "sunrise" => "23000",
-        "sunset" => "12000",
-        _ => time, // raw tick number passed through
-    }
-}
-
-/// Returns the platform-specific standard install directory for the mcmod binary.
-/// - Windows: %LOCALAPPDATA%\mcmod
-/// - Unix: ~/.local/bin
-pub fn install_dir() -> Result<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            return Ok(PathBuf::from(local).join("mcmod"));
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        if let Ok(home) = std::env::var("HOME") {
-            return Ok(PathBuf::from(home).join(".local").join("bin"));
-        }
-    }
-
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| McmodError::Other("Could not determine home directory".to_string()))?;
-
-    #[cfg(target_os = "windows")]
-    {
-        Ok(PathBuf::from(&home).join("AppData").join("Local").join("mcmod"))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Ok(PathBuf::from(&home).join(".local").join("bin"))
-    }
-}
-
-/// Returns the full path to the standard mcmod binary location.
-pub fn install_path() -> Result<PathBuf> {
-    let dir = install_dir()?;
-    if cfg!(target_os = "windows") {
-        Ok(dir.join("mcmod.exe"))
-    } else {
-        Ok(dir.join("mcmod"))
-    }
-}
-
-/// Returns whether the given directory is present on the system PATH.
-pub fn is_on_path(dir: &Path) -> bool {
-    if let Ok(path_var) = std::env::var("PATH") {
-        let separator = if cfg!(target_os = "windows") { ';' } else { ':' };
-        for entry in path_var.split(separator) {
-            if Path::new(entry) == dir {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 /// Copies options.txt generated from config into the given path.
 /// No-op if the destination already exists.
 pub fn copy_options_to(dest: &Path, config: &GlobalConfig) -> Result<()> {
@@ -379,109 +296,6 @@ pub fn copy_options_to(dest: &Path, config: &GlobalConfig) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(dest, content)?;
-    Ok(())
-}
-
-/// Maps a Minecraft version string to the correct data pack pack_format number.
-/// Returns (major, minor) where minor is 0 for pre-1.21.9 versions.
-fn mc_version_to_pack_format(mc_version: &str) -> (u32, u32) {
-    match mc_version {
-        "1.21" | "1.21.1" => (48, 0),
-        "1.21.2" | "1.21.3" => (57, 0),
-        "1.21.4" => (61, 0),
-        "1.21.5" => (71, 0),
-        "1.21.6" => (80, 0),
-        "1.21.7" | "1.21.8" => (81, 0),
-        "1.21.9" | "1.21.10" => (88, 0),
-        "1.21.11" => (94, 1),
-        _ => {
-            // For unknown versions, try to guess based on the minor version number.
-            // Parse the third component if present.
-            let parts: Vec<&str> = mc_version.splitn(3, '.').collect();
-            if parts.len() == 3 {
-                if let Ok(minor) = parts[2].parse::<u32>() {
-                    if minor >= 11 {
-                        return (94, 1); // latest known
-                    } else if minor >= 9 {
-                        return (88, 0);
-                    }
-                }
-            }
-            // Default fallback to 1.21.4's format
-            (61, 0)
-        }
-    }
-}
-
-/// Returns true if the MC version uses the new min_format/max_format pack.mcmeta
-/// scheme (introduced in 1.21.9).
-fn uses_new_pack_format(mc_version: &str) -> bool {
-    let (major, _) = mc_version_to_pack_format(mc_version);
-    major >= 88
-}
-
-/// Renders the pack.mcmeta JSON for the given Minecraft version.
-fn render_pack_mcmeta(mc_version: &str) -> String {
-    let (major, minor) = mc_version_to_pack_format(mc_version);
-    if uses_new_pack_format(mc_version) {
-        // 1.21.9+ uses min_format/max_format alongside pack_format
-        if minor > 0 {
-            format!(
-                "{{\n  \"pack\": {{\n    \"pack_format\": [{major}, {minor}],\n    \"min_format\": [{major}, 0],\n    \"max_format\": [{major}, {minor}],\n    \"description\": \"Dev defaults (generated by mcmod)\"\n  }}\n}}\n"
-            )
-        } else {
-            format!(
-                "{{\n  \"pack\": {{\n    \"pack_format\": {major},\n    \"min_format\": {major},\n    \"max_format\": {major},\n    \"description\": \"Dev defaults (generated by mcmod)\"\n  }}\n}}\n"
-            )
-        }
-    } else {
-        // Pre-1.21.9 uses only pack_format
-        format!(
-            "{{\n  \"pack\": {{\n    \"pack_format\": {major},\n    \"description\": \"Dev defaults (generated by mcmod)\"\n  }}\n}}\n"
-        )
-    }
-}
-
-/// Writes a dev-defaults data pack into the project's run/world directory.
-/// The data pack sets game rules on world load via a mcfunction.
-/// `mc_version` determines the correct pack_format for pack.mcmeta.
-pub fn write_dev_datapack(project_dir: &Path, config: &GlobalConfig, mc_version: &str) -> Result<()> {
-    let pack_dir = project_dir.join("run/world/datapacks/dev-defaults");
-
-    // pack.mcmeta — version-aware format
-    crate::util::write_file(
-        &pack_dir.join("pack.mcmeta"),
-        &render_pack_mcmeta(mc_version),
-    )?;
-
-    // load function tag — runs dev:init on world load
-    crate::util::write_file(
-        &pack_dir.join("data/minecraft/tags/function/load.json"),
-        "{\n  \"values\": [\n    \"dev:init\"\n  ]\n}\n",
-    )?;
-
-    // init.mcfunction — generated from gamerule config
-    let mut commands = Vec::new();
-
-    if let Some(v) = config.gamerules.do_daylight_cycle {
-        commands.push(format!("gamerule doDaylightCycle {v}"));
-    }
-    if let Some(v) = config.gamerules.do_weather_cycle {
-        commands.push(format!("gamerule doWeatherCycle {v}"));
-    }
-    if let Some(ref time) = config.gamerules.time_of_day {
-        commands.push(format!("time set {}", time_to_tick(time)));
-    }
-
-    if !commands.is_empty() {
-        commands.push(String::new()); // trailing newline
-    }
-
-    crate::util::write_file(
-        &pack_dir.join("data/dev/function/init.mcfunction"),
-        &commands.join("\n"),
-    )?;
-
     Ok(())
 }
 
@@ -523,29 +337,6 @@ mod tests {
         assert!(!parse_bool("no").unwrap());
         assert!(!parse_bool("0").unwrap());
         assert!(parse_bool("maybe").is_err());
-    }
-
-    #[test]
-    fn test_validate_time_of_day() {
-        assert!(validate_time_of_day("noon").is_ok());
-        assert!(validate_time_of_day("day").is_ok());
-        assert!(validate_time_of_day("midnight").is_ok());
-        assert!(validate_time_of_day("night").is_ok());
-        assert!(validate_time_of_day("sunrise").is_ok());
-        assert!(validate_time_of_day("sunset").is_ok());
-        assert!(validate_time_of_day("6000").is_ok());
-        assert!(validate_time_of_day("banana").is_err());
-    }
-
-    #[test]
-    fn test_time_to_tick() {
-        assert_eq!(time_to_tick("noon"), "day");
-        assert_eq!(time_to_tick("day"), "day");
-        assert_eq!(time_to_tick("midnight"), "midnight");
-        assert_eq!(time_to_tick("night"), "midnight");
-        assert_eq!(time_to_tick("sunrise"), "23000");
-        assert_eq!(time_to_tick("sunset"), "12000");
-        assert_eq!(time_to_tick("6000"), "6000");
     }
 
     #[test]
@@ -605,100 +396,5 @@ language = "java"
         assert!(sections.contains(&"Client Options"));
         assert!(sections.contains(&"Game Rules"));
         assert_eq!(entries.len(), 10);
-    }
-
-    #[test]
-    fn test_mc_version_to_pack_format() {
-        assert_eq!(mc_version_to_pack_format("1.21"), (48, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.1"), (48, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.2"), (57, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.3"), (57, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.4"), (61, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.5"), (71, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.6"), (80, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.7"), (81, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.8"), (81, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.9"), (88, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.10"), (88, 0));
-        assert_eq!(mc_version_to_pack_format("1.21.11"), (94, 1));
-    }
-
-    #[test]
-    fn test_uses_new_pack_format() {
-        assert!(!uses_new_pack_format("1.21.4"));
-        assert!(!uses_new_pack_format("1.21.8"));
-        assert!(uses_new_pack_format("1.21.9"));
-        assert!(uses_new_pack_format("1.21.11"));
-    }
-
-    #[test]
-    fn test_render_pack_mcmeta_old_format() {
-        let mcmeta = render_pack_mcmeta("1.21.4");
-        assert!(mcmeta.contains("\"pack_format\": 61"));
-        assert!(!mcmeta.contains("min_format"));
-        assert!(!mcmeta.contains("max_format"));
-    }
-
-    #[test]
-    fn test_render_pack_mcmeta_new_format_no_minor() {
-        let mcmeta = render_pack_mcmeta("1.21.9");
-        assert!(mcmeta.contains("\"pack_format\": 88"));
-        assert!(mcmeta.contains("\"min_format\": 88"));
-        assert!(mcmeta.contains("\"max_format\": 88"));
-    }
-
-    #[test]
-    fn test_render_pack_mcmeta_new_format_with_minor() {
-        let mcmeta = render_pack_mcmeta("1.21.11");
-        assert!(mcmeta.contains("\"pack_format\": [94, 1]"));
-        assert!(mcmeta.contains("\"min_format\": [94, 0]"));
-        assert!(mcmeta.contains("\"max_format\": [94, 1]"));
-    }
-
-    #[test]
-    fn test_unknown_version_fallback() {
-        // Unknown future version with high minor should use latest known
-        assert_eq!(mc_version_to_pack_format("1.21.15"), (94, 1));
-        // Completely unknown version falls back to 1.21.4's format
-        assert_eq!(mc_version_to_pack_format("1.22"), (61, 0));
-    }
-
-    #[test]
-    fn test_install_dir_returns_ok() {
-        // Should succeed on any platform with HOME or LOCALAPPDATA set
-        let dir = install_dir();
-        assert!(dir.is_ok());
-        let dir = dir.unwrap();
-        #[cfg(target_os = "windows")]
-        assert!(dir.to_string_lossy().contains("mcmod"));
-        #[cfg(not(target_os = "windows"))]
-        assert!(dir.to_string_lossy().contains(".local"));
-    }
-
-    #[test]
-    fn test_install_path_has_correct_filename() {
-        let path = install_path().unwrap();
-        let filename = path.file_name().unwrap().to_string_lossy();
-        if cfg!(target_os = "windows") {
-            assert_eq!(filename, "mcmod.exe");
-        } else {
-            assert_eq!(filename, "mcmod");
-        }
-    }
-
-    #[test]
-    fn test_is_on_path_with_known_dir() {
-        // The system PATH should contain at least one directory
-        if let Ok(path_var) = std::env::var("PATH") {
-            let sep = if cfg!(target_os = "windows") { ';' } else { ':' };
-            if let Some(first) = path_var.split(sep).next() {
-                assert!(is_on_path(Path::new(first)));
-            }
-        }
-    }
-
-    #[test]
-    fn test_is_on_path_with_nonexistent_dir() {
-        assert!(!is_on_path(Path::new("/this/path/definitely/does/not/exist/anywhere")));
     }
 }

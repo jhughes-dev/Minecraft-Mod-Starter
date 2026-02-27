@@ -1,3 +1,4 @@
+use crate::error::{McmodError, Result};
 use std::collections::HashMap;
 
 // Text templates (include_str!)
@@ -39,13 +40,34 @@ pub const GRADLEW: &[u8] = include_bytes!("../templates/gradle-wrapper/gradlew")
 pub const GRADLEW_BAT: &[u8] = include_bytes!("../templates/gradle-wrapper/gradlew.bat");
 
 /// Render a template by replacing all `{{placeholder}}` occurrences with values from the map.
-pub fn render(template: &str, vars: &HashMap<String, String>) -> String {
+/// Returns an error if any `{{placeholder}}` patterns remain after substitution.
+pub fn render(template: &str, vars: &HashMap<String, String>) -> Result<String> {
     let mut result = template.to_string();
     for (key, value) in vars {
         let placeholder = format!("{{{{{}}}}}", key);
         result = result.replace(&placeholder, value);
     }
-    result
+
+    // Check for unreplaced placeholders (but not conditional block markers like {{#name}}/{{/name}})
+    let mut pos = 0;
+    while let Some(start) = result[pos..].find("{{") {
+        let abs_start = pos + start;
+        if let Some(end) = result[abs_start..].find("}}") {
+            let inner = &result[abs_start + 2..abs_start + end];
+            // Skip conditional block markers ({{#...}} and {{/...}})
+            if !inner.starts_with('#') && !inner.starts_with('/') {
+                return Err(McmodError::Other(format!(
+                    "Unreplaced template placeholder: {{{{{}}}}}",
+                    inner
+                )));
+            }
+            pos = abs_start + end + 2;
+        } else {
+            break;
+        }
+    }
+
+    Ok(result)
 }
 
 /// All the values needed to render templates.
@@ -162,14 +184,25 @@ pub fn strip_conditional_blocks(content: &str, conditions: &[(&str, bool)]) -> S
 }
 
 fn chrono_year() -> String {
-    // Use a simple approach: read from system time
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    // Approximate year calculation (good enough for copyright)
-    let year = 1970 + secs / 31_557_600; // average seconds per year
+
+    // Convert unix timestamp to year using proper Gregorian calendar math
+    let days = (secs / 86400) as i64;
+    // Days from Unix epoch (1970-01-01) — use the civil_from_days algorithm
+    // Shift epoch from 1970-01-01 to 0000-03-01 for easier leap year handling
+    let z = days + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = (z - era * 146097) as u64; // day of era [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // year of era [0, 399]
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day of year [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let year = if m <= 2 { y + 1 } else { y };
     year.to_string()
 }
 
@@ -183,7 +216,7 @@ mod tests {
         vars.insert("name".to_string(), "World".to_string());
         vars.insert("greeting".to_string(), "Hello".to_string());
         assert_eq!(
-            render("{{greeting}}, {{name}}!", &vars),
+            render("{{greeting}}, {{name}}!", &vars).unwrap(),
             "Hello, World!"
         );
     }
@@ -191,14 +224,32 @@ mod tests {
     #[test]
     fn test_render_no_placeholders() {
         let vars = HashMap::new();
-        assert_eq!(render("no placeholders here", &vars), "no placeholders here");
+        assert_eq!(
+            render("no placeholders here", &vars).unwrap(),
+            "no placeholders here"
+        );
     }
 
     #[test]
     fn test_render_multiple_occurrences() {
         let mut vars = HashMap::new();
         vars.insert("x".to_string(), "A".to_string());
-        assert_eq!(render("{{x}} and {{x}}", &vars), "A and A");
+        assert_eq!(render("{{x}} and {{x}}", &vars).unwrap(), "A and A");
+    }
+
+    #[test]
+    fn test_render_unreplaced_placeholder_errors() {
+        let vars = HashMap::new();
+        let result = render("Hello {{name}}!", &vars);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("name"));
+    }
+
+    #[test]
+    fn test_render_ignores_conditional_blocks() {
+        let vars = HashMap::new();
+        let result = render("{{#fabric}}\ncontent\n{{/fabric}}", &vars);
+        assert!(result.is_ok());
     }
 
     #[test]

@@ -1,7 +1,6 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-#[allow(dead_code)]
 pub enum McmodError {
     #[error("Invalid mod ID '{0}': must match ^[a-z][a-z0-9_]*$")]
     InvalidModId(String),
@@ -11,9 +10,6 @@ pub enum McmodError {
 
     #[error("Feature '{0}' is already enabled")]
     AlreadyEnabled(String),
-
-    #[error("Feature '{0}' is not enabled")]
-    NotEnabled(String),
 
     #[error("mcmod.toml not found — run `mcmod init` first")]
     ConfigNotFound,

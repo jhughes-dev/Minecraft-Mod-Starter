@@ -90,10 +90,34 @@ pub struct InitOptions {
     pub modrinth_id: Option<String>,
     pub curseforge_id: Option<String>,
     pub offline: bool,
+    pub force: bool,
 }
 
 pub fn run(opts: InitOptions) -> Result<()> {
     println!("{}", "\n  mcmod init\n".bold().cyan());
+
+    // Warn if target directory is non-empty
+    if opts.dir.exists() && !opts.force {
+        let has_files = std::fs::read_dir(&opts.dir)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false);
+        if has_files {
+            println!(
+                "{}",
+                format!(
+                    "  Warning: {} is not empty. Files may be overwritten.",
+                    opts.dir.display()
+                )
+                .yellow()
+            );
+            let proceed = prompt_confirm("  Continue?", false)?;
+            if !proceed {
+                return Err(crate::error::McmodError::Other(
+                    "Aborted — directory is not empty (use --force to skip this check)".to_string(),
+                ));
+            }
+        }
+    }
 
     let interactive = opts.mod_id.is_none();
 
@@ -289,7 +313,7 @@ pub fn run(opts: InitOptions) -> Result<()> {
     }
 
     // Write dev-defaults data pack for game rule configuration
-    match crate::global_config::write_dev_datapack(project_dir, &global, &versions.minecraft) {
+    match crate::pack_format::write_dev_datapack(project_dir, &global, &versions.minecraft) {
         Ok(()) => println!("{}", "  Created run/world/datapacks/dev-defaults/".green()),
         Err(e) => eprintln!("  {}", format!("Warning: Could not create dev data pack: {e}").yellow()),
     }
@@ -385,11 +409,11 @@ fn write_base_files(dir: &Path, vars: &HashMap<String, String>, language: &str) 
     // settings.gradle — has {{mod_id}} placeholder
     write_file(
         &dir.join("settings.gradle"),
-        &render(template::TMPL_SETTINGS_GRADLE, vars),
+        &render(template::TMPL_SETTINGS_GRADLE, vars)?,
     )?;
 
     // gradle.properties
-    let mut props = render(template::TMPL_GRADLE_PROPERTIES, vars);
+    let mut props = render(template::TMPL_GRADLE_PROPERTIES, vars)?;
     // Add language properties if kotlin
     if language == "kotlin" {
         props.push_str("\nmod_language=kotlin\nkotlin_version=2.1.0\n");
@@ -400,7 +424,7 @@ fn write_base_files(dir: &Path, vars: &HashMap<String, String>, language: &str) 
     write_file(&dir.join(".gitignore"), template::TMPL_GITIGNORE)?;
 
     // LICENSE
-    write_file(&dir.join("LICENSE"), &render(template::TMPL_LICENSE, vars))?;
+    write_file(&dir.join("LICENSE"), &render(template::TMPL_LICENSE, vars)?)?;
 
     // Gradle wrapper
     write_binary(
@@ -451,7 +475,7 @@ fn write_common_module(
     let source_path = dir.join(format!(
         "common/src/main/{source_dir}/{package_path}/{class_name}.{ext}"
     ));
-    write_file(&source_path, &render(template, vars))?;
+    write_file(&source_path, &render(template, vars)?)?;
 
     // assets/<mod_id>/icon.png.txt
     let mod_id = vars.get("mod_id").unwrap();

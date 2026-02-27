@@ -75,9 +75,9 @@ fn parse_maven_versions(xml: &str) -> Vec<String> {
         .collect()
 }
 
-/// Fetch latest stable Minecraft version from Fabric Meta API.
-fn fetch_minecraft_version() -> Result<String, McmodError> {
-    let body = http_get("https://meta.fabricmc.net/v2/versions/game")?;
+/// Fetch the first stable version from a Fabric Meta API endpoint.
+fn fetch_stable_from_fabric_meta(endpoint: &str, error_msg: &str) -> Result<String, McmodError> {
+    let body = http_get(endpoint)?;
     let versions: Vec<serde_json::Value> = serde_json::from_str(&body)?;
 
     for v in &versions {
@@ -87,26 +87,23 @@ fn fetch_minecraft_version() -> Result<String, McmodError> {
             }
         }
     }
-    Err(McmodError::Other(
-        "No stable Minecraft version found".to_string(),
-    ))
+    Err(McmodError::Other(error_msg.to_string()))
+}
+
+/// Fetch latest stable Minecraft version from Fabric Meta API.
+fn fetch_minecraft_version() -> Result<String, McmodError> {
+    fetch_stable_from_fabric_meta(
+        "https://meta.fabricmc.net/v2/versions/game",
+        "No stable Minecraft version found",
+    )
 }
 
 /// Fetch latest stable Fabric Loader version from Fabric Meta API.
 fn fetch_fabric_loader_version() -> Result<String, McmodError> {
-    let body = http_get("https://meta.fabricmc.net/v2/versions/loader")?;
-    let versions: Vec<serde_json::Value> = serde_json::from_str(&body)?;
-
-    for v in &versions {
-        if v.get("stable").and_then(|s| s.as_bool()) == Some(true) {
-            if let Some(version) = v.get("version").and_then(|v| v.as_str()) {
-                return Ok(version.to_string());
-            }
-        }
-    }
-    Err(McmodError::Other(
-        "No stable Fabric Loader version found".to_string(),
-    ))
+    fetch_stable_from_fabric_meta(
+        "https://meta.fabricmc.net/v2/versions/loader",
+        "No stable Fabric Loader version found",
+    )
 }
 
 /// Fetch latest Fabric API version for the given Minecraft version from Maven metadata.
@@ -155,4 +152,49 @@ fn fetch_neoforge_version(mc_version: &str) -> Result<String, McmodError> {
         .ok_or_else(|| {
             McmodError::Other(format!("No NeoForge version found for {mc_version}"))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_maven_versions_basic() {
+        let xml = r#"<?xml version="1.0"?>
+<metadata>
+  <versioning>
+    <versions>
+      <version>0.100.0+1.21.4</version>
+      <version>0.101.0+1.21.4</version>
+      <version>0.102.0+1.21.5</version>
+    </versions>
+  </versioning>
+</metadata>"#;
+        let versions = parse_maven_versions(xml);
+        assert_eq!(
+            versions,
+            vec![
+                "0.100.0+1.21.4",
+                "0.101.0+1.21.4",
+                "0.102.0+1.21.5",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_maven_versions_empty() {
+        let xml = "<metadata><versioning></versioning></metadata>";
+        assert!(parse_maven_versions(xml).is_empty());
+    }
+
+    #[test]
+    fn test_parse_maven_versions_ignores_non_version_lines() {
+        let xml = r#"<metadata>
+  <groupId>net.fabricmc</groupId>
+  <artifactId>fabric-api</artifactId>
+  <version>1.0.0</version>
+</metadata>"#;
+        let versions = parse_maven_versions(xml);
+        assert_eq!(versions, vec!["1.0.0"]);
+    }
 }

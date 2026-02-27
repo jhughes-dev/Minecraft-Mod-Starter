@@ -108,3 +108,112 @@ pub fn set_gradle_property(dir: &Path, key: &str, value: &str) -> Result<()> {
     std::fs::write(&path, result)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("mcmod_gradle_{name}_{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn test_add_include_to_settings_after_existing() {
+        let dir = temp_dir("include_after");
+        fs::write(
+            dir.join("settings.gradle"),
+            "include(\"common\")\nrootProject.name = \"mymod\"\n",
+        )
+        .unwrap();
+
+        add_include_to_settings(&dir, "fabric").unwrap();
+        let result = fs::read_to_string(dir.join("settings.gradle")).unwrap();
+        assert!(result.contains("include(\"fabric\")"));
+        let common_pos = result.find("include(\"common\")").unwrap();
+        let fabric_pos = result.find("include(\"fabric\")").unwrap();
+        assert!(fabric_pos > common_pos);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_add_include_to_settings_idempotent() {
+        let dir = temp_dir("include_idem");
+        fs::write(
+            dir.join("settings.gradle"),
+            "include(\"common\")\ninclude(\"fabric\")\nrootProject.name = \"mymod\"\n",
+        )
+        .unwrap();
+
+        add_include_to_settings(&dir, "fabric").unwrap();
+        let result = fs::read_to_string(dir.join("settings.gradle")).unwrap();
+        assert_eq!(result.matches("include(\"fabric\")").count(), 1);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_set_gradle_property_existing() {
+        let dir = temp_dir("prop_existing");
+        fs::write(
+            dir.join("gradle.properties"),
+            "mod_id=test\nmod_version=1.0.0\n",
+        )
+        .unwrap();
+
+        set_gradle_property(&dir, "mod_version", "2.0.0").unwrap();
+        let result = fs::read_to_string(dir.join("gradle.properties")).unwrap();
+        assert!(result.contains("mod_version=2.0.0"));
+        assert!(!result.contains("mod_version=1.0.0"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_set_gradle_property_commented() {
+        let dir = temp_dir("prop_commented");
+        fs::write(
+            dir.join("gradle.properties"),
+            "mod_id=test\n# kotlin_version=1.9.0\n",
+        )
+        .unwrap();
+
+        set_gradle_property(&dir, "kotlin_version", "2.1.0").unwrap();
+        let result = fs::read_to_string(dir.join("gradle.properties")).unwrap();
+        assert!(result.contains("kotlin_version=2.1.0"));
+        assert!(!result.contains("# kotlin_version"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_set_gradle_property_new() {
+        let dir = temp_dir("prop_new");
+        fs::write(dir.join("gradle.properties"), "mod_id=test\n").unwrap();
+
+        set_gradle_property(&dir, "new_key", "new_value").unwrap();
+        let result = fs::read_to_string(dir.join("gradle.properties")).unwrap();
+        assert!(result.contains("new_key=new_value"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_add_platform_to_gradle_properties() {
+        let dir = temp_dir("add_platform");
+        fs::write(
+            dir.join("gradle.properties"),
+            "enabled_platforms=fabric\n",
+        )
+        .unwrap();
+
+        add_platform_to_gradle_properties(&dir, "neoforge").unwrap();
+        let result = fs::read_to_string(dir.join("gradle.properties")).unwrap();
+        assert!(result.contains("enabled_platforms=fabric,neoforge"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

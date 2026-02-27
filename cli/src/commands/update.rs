@@ -1,5 +1,5 @@
 use crate::error::{McmodError, Result};
-use crate::global_config;
+use crate::install;
 use crate::util::{http_get, http_get_bytes};
 use colored::Colorize;
 use std::path::Path;
@@ -15,7 +15,8 @@ pub fn run() -> Result<()> {
     );
 
     println!("{}", "  Checking for updates...".cyan());
-    let latest_version = fetch_latest_version()?;
+    let release = fetch_release()?;
+    let latest_version = extract_version(&release)?;
 
     if current_version == latest_version {
         println!(
@@ -31,12 +32,12 @@ pub fn run() -> Result<()> {
     );
 
     let asset_name = get_asset_name()?;
-    let download_url = fetch_asset_url(&latest_version, &asset_name)?;
+    let download_url = extract_asset_url(&release, &latest_version, &asset_name)?;
 
     println!("{}", format!("  Downloading {asset_name}...").cyan());
     let binary = http_get_bytes(&download_url)?;
 
-    let target = global_config::install_path()?;
+    let target = install::install_path()?;
     install_binary(&target, &binary)?;
 
     println!(
@@ -69,8 +70,8 @@ pub fn run() -> Result<()> {
     }
 
     // Warn if the install directory isn't on PATH
-    if let Ok(dir) = global_config::install_dir() {
-        if !global_config::is_on_path(&dir) {
+    if let Ok(dir) = install::install_dir() {
+        if !install::is_on_path(&dir) {
             println!(
                 "{}",
                 format!(
@@ -85,10 +86,13 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn fetch_latest_version() -> Result<String> {
+fn fetch_release() -> Result<serde_json::Value> {
     let body = http_get(GITHUB_RELEASES_URL)?;
     let release: serde_json::Value = serde_json::from_str(&body)?;
+    Ok(release)
+}
 
+fn extract_version(release: &serde_json::Value) -> Result<String> {
     let tag = release
         .get("tag_name")
         .and_then(|v| v.as_str())
@@ -99,10 +103,11 @@ fn fetch_latest_version() -> Result<String> {
     Ok(version.to_string())
 }
 
-fn fetch_asset_url(version: &str, asset_name: &str) -> Result<String> {
-    let body = http_get(GITHUB_RELEASES_URL)?;
-    let release: serde_json::Value = serde_json::from_str(&body)?;
-
+fn extract_asset_url(
+    release: &serde_json::Value,
+    version: &str,
+    asset_name: &str,
+) -> Result<String> {
     let assets = release
         .get("assets")
         .and_then(|v| v.as_array())

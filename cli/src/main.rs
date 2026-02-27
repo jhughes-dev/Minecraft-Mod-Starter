@@ -3,6 +3,8 @@ mod config;
 mod error;
 mod global_config;
 mod gradle;
+mod install;
+mod pack_format;
 mod template;
 mod util;
 mod versions;
@@ -13,7 +15,7 @@ use std::path::PathBuf;
 use std::process;
 
 #[derive(Parser)]
-#[command(name = "mcmod", about = "CLI tool for scaffolding multi-loader Minecraft mods")]
+#[command(name = "mcmod", version, about = "CLI tool for scaffolding multi-loader Minecraft mods")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -78,6 +80,10 @@ enum Commands {
         /// Skip online version fetching, use defaults
         #[arg(long)]
         offline: bool,
+
+        /// Overwrite files in an existing non-empty directory without prompting
+        #[arg(long)]
+        force: bool,
     },
 
     /// Add a feature to an existing project
@@ -129,6 +135,7 @@ fn main() {
             modrinth_id,
             curseforge_id,
             offline,
+            force,
         } => commands::init::run(commands::init::InitOptions {
             dir,
             mod_id,
@@ -144,6 +151,7 @@ fn main() {
             modrinth_id,
             curseforge_id,
             offline,
+            force,
         }),
         Commands::Add { feature, dir } => commands::add::run(&feature, &dir),
         Commands::Update => commands::update::run(),
