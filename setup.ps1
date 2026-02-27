@@ -254,7 +254,7 @@ Write-Host "  Updating gradle.properties..." -ForegroundColor Gray
 $gradleProps = Get-Content (Join-Path $scriptDir "gradle.properties") -Raw
 $gradleProps = $gradleProps -replace 'minecraft_version=.*', "minecraft_version=$mcVersion"
 $gradleProps = $gradleProps -replace 'fabric_loader_version=.*', "fabric_loader_version=$loaderVersion"
-$gradleProps = $gradleProps -replace '# fabric_api_version=.*', "fabric_api_version=$fabricVersion"
+$gradleProps = $gradleProps -replace '.*fabric_api_version=.*', "fabric_api_version=$fabricVersion"
 $gradleProps = $gradleProps -replace 'neoforge_version=.*', "neoforge_version=$neoForgeVersion"
 $gradleProps = $gradleProps -replace '# mod_language=.*', "mod_language=$Language"
 if ($UseKotlin) {
@@ -265,17 +265,12 @@ $gradleProps = $gradleProps -replace 'archives_base_name=.*', "archives_base_nam
 $gradleProps = $gradleProps -replace 'mod_name=.*', "mod_name=$ModName"
 Set-Content (Join-Path $scriptDir "gradle.properties") $gradleProps -NoNewline
 
-# 3. Update settings.gradle - set rootProject.name
+# 3. Update settings.gradle - set rootProject.name and add loader includes
 Write-Host "  Updating settings.gradle..." -ForegroundColor Gray
 $settingsGradle = Get-Content (Join-Path $scriptDir "settings.gradle") -Raw
 $settingsGradle = $settingsGradle -replace 'rootProject\.name = "modid"', "rootProject.name = `"$ModId`""
+$settingsGradle = $settingsGradle -replace '(include\("common"\))', "`$1`ninclude(`"fabric`")`ninclude(`"neoforge`")"
 Set-Content (Join-Path $scriptDir "settings.gradle") $settingsGradle -NoNewline
-
-# 4. Enable Fabric API in fabric/build.gradle
-Write-Host "  Enabling Fabric API in fabric/build.gradle..." -ForegroundColor Gray
-$fabricBuildGradle = Get-Content (Join-Path $scriptDir "fabric/build.gradle") -Raw
-$fabricBuildGradle = $fabricBuildGradle -replace '// modApi "net.fabricmc.fabric-api:fabric-api', 'modApi "net.fabricmc.fabric-api:fabric-api'
-Set-Content (Join-Path $scriptDir "fabric/build.gradle") $fabricBuildGradle -NoNewline
 
 # 5. Create common module source
 Write-Host "  Creating common module source..." -ForegroundColor Gray
@@ -430,8 +425,7 @@ $fabricJson = @"
   "depends": {
     "fabricloader": ">=$loaderVersion",
     "minecraft": "~$mcVersion",
-    "java": ">=21",
-    "fabric-api": "*"
+    "java": ">=21"
   }
 }
 "@

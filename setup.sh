@@ -282,7 +282,7 @@ clean_empty_parents() {
 echo -e "${GRAY}  Updating gradle.properties...${NC}"
 sed -i.bak "s/minecraft_version=.*/minecraft_version=$MC_VERSION/" "$SCRIPT_DIR/gradle.properties"
 sed -i.bak "s/fabric_loader_version=.*/fabric_loader_version=$LOADER_VERSION/" "$SCRIPT_DIR/gradle.properties"
-sed -i.bak "s|# fabric_api_version=.*|fabric_api_version=$FABRIC_VERSION|" "$SCRIPT_DIR/gradle.properties"
+sed -i.bak "s|.*fabric_api_version=.*|fabric_api_version=$FABRIC_VERSION|" "$SCRIPT_DIR/gradle.properties"
 sed -i.bak "s/neoforge_version=.*/neoforge_version=$NEOFORGE_VERSION/" "$SCRIPT_DIR/gradle.properties"
 sed -i.bak "s/# mod_language=.*/mod_language=$LANGUAGE/" "$SCRIPT_DIR/gradle.properties"
 if [[ "$USE_KOTLIN" == "true" ]]; then
@@ -296,12 +296,9 @@ rm -f "$SCRIPT_DIR/gradle.properties.bak"
 # 3. Update settings.gradle
 echo -e "${GRAY}  Updating settings.gradle...${NC}"
 sed -i.bak "s/rootProject\.name = \"modid\"/rootProject.name = \"$MOD_ID\"/" "$SCRIPT_DIR/settings.gradle"
+# Add loader module includes (boilerplate only has common)
+sed -i.bak 's/^include("common")$/include("common")\ninclude("fabric")\ninclude("neoforge")/' "$SCRIPT_DIR/settings.gradle"
 rm -f "$SCRIPT_DIR/settings.gradle.bak"
-
-# 4. Enable Fabric API in fabric/build.gradle
-echo -e "${GRAY}  Enabling Fabric API in fabric/build.gradle...${NC}"
-sed -i.bak 's|// modApi "net.fabricmc.fabric-api:fabric-api|modApi "net.fabricmc.fabric-api:fabric-api|' "$SCRIPT_DIR/fabric/build.gradle"
-rm -f "$SCRIPT_DIR/fabric/build.gradle.bak"
 
 # 5. Create common module source
 echo -e "${GRAY}  Creating common module source...${NC}"
@@ -441,8 +438,7 @@ cat > "$FABRIC_RESOURCES_DIR/fabric.mod.json" << EOF
   "depends": {
     "fabricloader": ">=$LOADER_VERSION",
     "minecraft": "~$MC_VERSION",
-    "java": ">=21",
-    "fabric-api": "*"
+    "java": ">=21"
   }
 }
 EOF
