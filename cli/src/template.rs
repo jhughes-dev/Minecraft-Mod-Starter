@@ -120,6 +120,11 @@ pub fn build_common_vars(config: &McmodConfig) -> HashMap<String, String> {
     vars.insert("language".to_string(), config.mod_info.language.clone());
     vars.insert("year".to_string(), chrono_year());
 
+    // Kotlin version (used inside {{#kotlin}} blocks)
+    if config.mod_info.language == "kotlin" {
+        vars.insert("kotlin_version".to_string(), "2.1.0".to_string());
+    }
+
     // Stonecutter-specific
     vars.insert(
         "stonecutter_versions".to_string(),

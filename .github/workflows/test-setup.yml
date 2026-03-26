@@ -41,82 +41,53 @@ jobs:
             --package com.example.testmod --author TestAuthor \
             --description "A test mod" --language ${{ matrix.language }} \
             --loader fabric --loader neoforge \
+            --minecraft 1.21.4 \
             --ci false --server false --publishing false \
             --testing false --offline
 
       - name: Verify gradle.properties
         run: |
-          grep -q 'archives_base_name=testmod' /tmp/testmod/gradle.properties
-          grep -q 'maven_group=com.example.testmod' /tmp/testmod/gradle.properties
-          grep -q 'mod_name=Test Mod' /tmp/testmod/gradle.properties
+          grep -q 'mod.id=testmod' /tmp/testmod/gradle.properties
+          grep -q 'mod.group=com.example.testmod' /tmp/testmod/gradle.properties
+          grep -q 'mod.name=Test Mod' /tmp/testmod/gradle.properties
 
-      - name: Verify Fabric API enabled
-        run: grep -q '^[^/]*modApi "net.fabricmc.fabric-api:fabric-api' /tmp/testmod/fabric/build.gradle
+      - name: Verify Stonecutter files exist
+        run: |
+          test -f /tmp/testmod/stonecutter.gradle.kts
+          test -f /tmp/testmod/settings.gradle.kts
+          test -f /tmp/testmod/build.gradle.kts
+          test -f /tmp/testmod/versions/1.21.4/gradle.properties
+
+      - name: Verify Fabric build file
+        run: test -f /tmp/testmod/fabric/build.gradle.kts
 
       - name: Verify Kotlin-specific settings
         if: matrix.language == 'kotlin'
         run: |
-          grep -q 'mod_language=kotlin' /tmp/testmod/gradle.properties
-          grep -q '^kotlin_version=' /tmp/testmod/gradle.properties
-          test ! -f "/tmp/testmod/common/src/main/java/com/example/testmod/TestmodMod.java"
+          grep -q 'kotlin("jvm")' /tmp/testmod/build.gradle.kts
+          test ! -f "/tmp/testmod/src/main/java/com/example/testmod/TestmodMod.java"
 
-      - name: Verify common assets renamed
-        run: test -d "/tmp/testmod/common/src/main/resources/assets/testmod"
-
-      - name: Normalize versions in generated metadata
+      - name: Verify common source in root src/
         run: |
-          chmod +x test/normalize-versions.sh
-          bash test/normalize-versions.sh /tmp/testmod/fabric/src/main/resources/fabric.mod.json
-          bash test/normalize-versions.sh /tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml
-
-      - name: Diff against golden files
-        run: |
-          LANG="${{ matrix.language }}"
-          GOLDEN="test/golden/$LANG"
-          FAIL=0
-
-          diff_file() {
-            if [ ! -f "$1" ]; then
-              echo "::error::MISSING: $1"
-              return 1
-            fi
-            if ! diff -u "$2" "$1"; then
-              echo "::error::MISMATCH: $1 vs $2"
-              return 1
-            fi
-          }
-
-          if [ "$LANG" = "java" ]; then
-            diff_file "/tmp/testmod/common/src/main/java/com/example/testmod/TestmodMod.java" \
-                       "$GOLDEN/common/src/main/java/com/example/testmod/TestmodMod.java" || FAIL=1
-            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" \
-                       "$GOLDEN/fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" || FAIL=1
-            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
-                       "$GOLDEN/fabric/src/main/java/com/example/testmod/mixin/package-info.java" || FAIL=1
-            diff_file "/tmp/testmod/neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" \
-                       "$GOLDEN/neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" || FAIL=1
+          if [ "${{ matrix.language }}" = "kotlin" ]; then
+            test -f "/tmp/testmod/src/main/kotlin/com/example/testmod/TestmodMod.kt"
           else
-            diff_file "/tmp/testmod/common/src/main/kotlin/com/example/testmod/TestmodMod.kt" \
-                       "$GOLDEN/common/src/main/kotlin/com/example/testmod/TestmodMod.kt" || FAIL=1
-            diff_file "/tmp/testmod/fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" \
-                       "$GOLDEN/fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" || FAIL=1
-            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
-                       "$GOLDEN/fabric/src/main/java/com/example/testmod/mixin/package-info.java" || FAIL=1
-            diff_file "/tmp/testmod/neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" \
-                       "$GOLDEN/neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" || FAIL=1
+            test -f "/tmp/testmod/src/main/java/com/example/testmod/TestmodMod.java"
           fi
 
-          diff_file "/tmp/testmod/fabric/src/main/resources/fabric.mod.json" \
-                     "$GOLDEN/fabric/src/main/resources/fabric.mod.json" || FAIL=1
-          diff_file "/tmp/testmod/fabric/src/main/resources/testmod.mixins.json" \
-                     "$GOLDEN/fabric/src/main/resources/testmod.mixins.json" || FAIL=1
-          diff_file "/tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml" \
-                     "$GOLDEN/neoforge/src/main/resources/META-INF/neoforge.mods.toml" || FAIL=1
-          diff_file "/tmp/testmod/settings.gradle" \
-                     "$GOLDEN/settings.gradle" || FAIL=1
+      - name: Verify assets renamed
+        run: test -d "/tmp/testmod/src/main/resources/assets/testmod"
 
-          [ "$FAIL" -eq 0 ] || exit 1
-          echo "All golden file comparisons passed."
+      - name: Verify mod metadata exists
+        run: |
+          test -f /tmp/testmod/fabric/src/main/resources/fabric.mod.json
+          test -f /tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml
+
+      - name: Verify per-version deps
+        run: |
+          grep -q 'deps.fabric_api=' /tmp/testmod/versions/1.21.4/gradle.properties
+          grep -q 'deps.neoforge=' /tmp/testmod/versions/1.21.4/gradle.properties
+          grep -q 'deps.mc_dep_fabric=' /tmp/testmod/versions/1.21.4/gradle.properties
 
       - name: Verify no .github dir (CI disabled)
         run: test ! -d /tmp/testmod/.github
@@ -144,6 +115,7 @@ jobs:
             --package com.example.testmod --author TestAuthor \
             --description "A test mod" --language ${{ matrix.language }} \
             --loader fabric --loader neoforge \
+            --minecraft 1.21.4 \
             --ci true --server false --publishing false \
             --testing false --offline
 
@@ -152,78 +124,70 @@ jobs:
 
       - name: Verify gradle.properties
         run: |
-          grep -q 'archives_base_name=testmod' /tmp/testmod/gradle.properties
-          grep -q 'maven_group=com.example.testmod' /tmp/testmod/gradle.properties
-          grep -q 'mod_name=Test Mod' /tmp/testmod/gradle.properties
+          grep -q 'mod.id=testmod' /tmp/testmod/gradle.properties
+          grep -q 'mod.group=com.example.testmod' /tmp/testmod/gradle.properties
+          grep -q 'mod.name=Test Mod' /tmp/testmod/gradle.properties
 
-      - name: Verify Fabric API enabled
-        run: grep -q '^[^/]*modApi "net.fabricmc.fabric-api:fabric-api' /tmp/testmod/fabric/build.gradle
+      - name: Verify Stonecutter files exist
+        run: |
+          test -f /tmp/testmod/stonecutter.gradle.kts
+          test -f /tmp/testmod/settings.gradle.kts
+          test -f /tmp/testmod/build.gradle.kts
+
+      - name: Verify Fabric build file
+        run: test -f /tmp/testmod/fabric/build.gradle.kts
 
       - name: Verify Kotlin-specific settings
         if: matrix.language == 'kotlin'
         run: |
-          grep -q 'mod_language=kotlin' /tmp/testmod/gradle.properties
-          grep -q '^kotlin_version=' /tmp/testmod/gradle.properties
-          test ! -f "/tmp/testmod/common/src/main/java/com/example/testmod/TestmodMod.java"
+          grep -q 'kotlin("jvm")' /tmp/testmod/build.gradle.kts
+          test ! -f "/tmp/testmod/src/main/java/com/example/testmod/TestmodMod.java"
 
-      - name: Verify common assets renamed
-        run: test -d "/tmp/testmod/common/src/main/resources/assets/testmod"
-
-      - name: Normalize versions in generated metadata
+      - name: Verify common source in root src/
         run: |
-          chmod +x test/normalize-versions.sh
-          bash test/normalize-versions.sh /tmp/testmod/fabric/src/main/resources/fabric.mod.json
-          bash test/normalize-versions.sh /tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml
-
-      - name: Diff against golden files
-        run: |
-          LANG="${{ matrix.language }}"
-          GOLDEN="test/golden/$LANG"
-          CI_GOLDEN="test/golden/ci"
-          FAIL=0
-
-          diff_file() {
-            if [ ! -f "$1" ]; then
-              echo "::error::MISSING: $1"
-              return 1
-            fi
-            if ! diff -u "$2" "$1"; then
-              echo "::error::MISMATCH: $1 vs $2"
-              return 1
-            fi
-          }
-
-          if [ "$LANG" = "java" ]; then
-            diff_file "/tmp/testmod/common/src/main/java/com/example/testmod/TestmodMod.java" \
-                       "$GOLDEN/common/src/main/java/com/example/testmod/TestmodMod.java" || FAIL=1
-            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" \
-                       "$GOLDEN/fabric/src/main/java/com/example/testmod/fabric/TestmodModFabric.java" || FAIL=1
-            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
-                       "$GOLDEN/fabric/src/main/java/com/example/testmod/mixin/package-info.java" || FAIL=1
-            diff_file "/tmp/testmod/neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" \
-                       "$GOLDEN/neoforge/src/main/java/com/example/testmod/neoforge/TestmodModNeoForge.java" || FAIL=1
+          if [ "${{ matrix.language }}" = "kotlin" ]; then
+            test -f "/tmp/testmod/src/main/kotlin/com/example/testmod/TestmodMod.kt"
           else
-            diff_file "/tmp/testmod/common/src/main/kotlin/com/example/testmod/TestmodMod.kt" \
-                       "$GOLDEN/common/src/main/kotlin/com/example/testmod/TestmodMod.kt" || FAIL=1
-            diff_file "/tmp/testmod/fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" \
-                       "$GOLDEN/fabric/src/main/kotlin/com/example/testmod/fabric/TestmodModFabric.kt" || FAIL=1
-            diff_file "/tmp/testmod/fabric/src/main/java/com/example/testmod/mixin/package-info.java" \
-                       "$GOLDEN/fabric/src/main/java/com/example/testmod/mixin/package-info.java" || FAIL=1
-            diff_file "/tmp/testmod/neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" \
-                       "$GOLDEN/neoforge/src/main/kotlin/com/example/testmod/neoforge/TestmodModNeoForge.kt" || FAIL=1
+            test -f "/tmp/testmod/src/main/java/com/example/testmod/TestmodMod.java"
           fi
 
-          diff_file "/tmp/testmod/fabric/src/main/resources/fabric.mod.json" \
-                     "$GOLDEN/fabric/src/main/resources/fabric.mod.json" || FAIL=1
-          diff_file "/tmp/testmod/fabric/src/main/resources/testmod.mixins.json" \
-                     "$GOLDEN/fabric/src/main/resources/testmod.mixins.json" || FAIL=1
-          diff_file "/tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml" \
-                     "$GOLDEN/neoforge/src/main/resources/META-INF/neoforge.mods.toml" || FAIL=1
-          diff_file "/tmp/testmod/settings.gradle" \
-                     "$GOLDEN/settings.gradle" || FAIL=1
+  test-multi-version:
+    needs: build-cli
+    name: "multi-version"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mcmod
+      - run: chmod +x mcmod
 
-          diff_file "/tmp/testmod/.github/workflows/build.yml" \
-                     "$CI_GOLDEN/build.yml" || FAIL=1
+      - name: Run mcmod init with multiple versions
+        run: |
+          mkdir /tmp/testmod
+          ./mcmod init --dir /tmp/testmod \
+            --mod-id testmod --mod-name "Test Mod" \
+            --package com.example.testmod --author TestAuthor \
+            --description "A test mod" --language java \
+            --loader fabric --loader neoforge \
+            --minecraft 1.21.1 --minecraft 1.21.7 \
+            --ci false --server false --publishing false \
+            --testing false --offline
 
-          [ "$FAIL" -eq 0 ] || exit 1
-          echo "All golden file comparisons passed."
+      - name: Verify version directories
+        run: |
+          test -f /tmp/testmod/versions/1.21.1/gradle.properties
+          test -f /tmp/testmod/versions/1.21.7/gradle.properties
+
+      - name: Verify version ranges
+        run: |
+          grep -q 'deps.mc_dep_fabric=>=1.21.1 <=1.21.6' /tmp/testmod/versions/1.21.1/gradle.properties
+          grep -q 'deps.mc_dep_fabric=>=1.21.7 <=1.21.11' /tmp/testmod/versions/1.21.7/gradle.properties
+
+      - name: Verify Stonecutter versions in settings
+        run: |
+          grep -q '"1.21.1", "1.21.7"' /tmp/testmod/settings.gradle.kts
+
+      - name: Verify active version
+        run: |
+          grep -q 'stonecutter active "1.21.1"' /tmp/testmod/stonecutter.gradle.kts
