@@ -1,32 +1,22 @@
+use crate::config::{McmodConfig, VersionTarget};
 use crate::error::{McmodError, Result};
 use std::collections::HashMap;
 
-// Text templates (include_str!)
-pub const TMPL_BUILD_GRADLE_ROOT: &str = include_str!("../templates/build.gradle.root");
-pub const TMPL_SETTINGS_GRADLE: &str = include_str!("../templates/settings.gradle");
-pub const TMPL_GRADLE_PROPERTIES: &str = include_str!("../templates/gradle.properties");
+// --- Legacy templates (still used by source file generation & add command) ---
 pub const TMPL_GITIGNORE: &str = include_str!("../templates/gitignore");
 pub const TMPL_LICENSE: &str = include_str!("../templates/LICENSE");
 
-pub const TMPL_COMMON_BUILD_GRADLE: &str = include_str!("../templates/common/build.gradle");
 pub const TMPL_COMMON_MOD_JAVA: &str = include_str!("../templates/common/CommonMod.java");
 pub const TMPL_COMMON_MOD_KT: &str = include_str!("../templates/common/CommonMod.kt");
 
-pub const TMPL_FABRIC_BUILD_GRADLE: &str = include_str!("../templates/fabric/build.gradle");
-pub const TMPL_FABRIC_GRADLE_PROPS: &str = include_str!("../templates/fabric/gradle.properties");
 pub const TMPL_FABRIC_MOD_JAVA: &str = include_str!("../templates/fabric/FabricMod.java");
 pub const TMPL_FABRIC_MOD_KT: &str = include_str!("../templates/fabric/FabricMod.kt");
-pub const TMPL_FABRIC_MOD_JSON: &str = include_str!("../templates/fabric/fabric.mod.json");
 pub const TMPL_FABRIC_MIXINS_JSON: &str = include_str!("../templates/fabric/mixins.json");
 pub const TMPL_FABRIC_MIXIN_PACKAGE_INFO: &str =
     include_str!("../templates/fabric/mixin_package_info.java");
 
-pub const TMPL_NEOFORGE_BUILD_GRADLE: &str = include_str!("../templates/neoforge/build.gradle");
-pub const TMPL_NEOFORGE_GRADLE_PROPS: &str =
-    include_str!("../templates/neoforge/gradle.properties");
 pub const TMPL_NEOFORGE_MOD_JAVA: &str = include_str!("../templates/neoforge/NeoForgeMod.java");
 pub const TMPL_NEOFORGE_MOD_KT: &str = include_str!("../templates/neoforge/NeoForgeMod.kt");
-pub const TMPL_NEOFORGE_MODS_TOML: &str = include_str!("../templates/neoforge/neoforge.mods.toml");
 
 pub const TMPL_COMMON_TEST_JAVA: &str = include_str!("../templates/common/ExampleModTest.java");
 pub const TMPL_COMMON_TEST_KT: &str = include_str!("../templates/common/ExampleModTest.kt");
@@ -40,7 +30,32 @@ pub const TMPL_NEOFORGE_GAMETEST_KT: &str =
 pub const TMPL_CI_BUILD_YML: &str = include_str!("../templates/ci/build.yml");
 pub const TMPL_CI_RELEASE_YML: &str = include_str!("../templates/ci/release.yml");
 
-// Binary templates (include_bytes!)
+// --- Stonecutter templates ---
+pub const SC_SETTINGS_GRADLE: &str =
+    include_str!("../templates/stonecutter/settings.gradle.kts");
+pub const SC_STONECUTTER_GRADLE: &str =
+    include_str!("../templates/stonecutter/stonecutter.gradle.kts");
+pub const SC_BUILD_GRADLE: &str =
+    include_str!("../templates/stonecutter/build.gradle.kts");
+pub const SC_GRADLE_PROPERTIES: &str =
+    include_str!("../templates/stonecutter/gradle.properties");
+pub const SC_VERSION_GRADLE_PROPERTIES: &str =
+    include_str!("../templates/stonecutter/version.gradle.properties");
+pub const SC_FABRIC_BUILD_GRADLE: &str =
+    include_str!("../templates/stonecutter/fabric/build.gradle.kts");
+pub const SC_FABRIC_MOD_JSON: &str =
+    include_str!("../templates/stonecutter/fabric/fabric.mod.json");
+pub const SC_NEOFORGE_BUILD_GRADLE: &str =
+    include_str!("../templates/stonecutter/neoforge/build.gradle.kts");
+pub const SC_NEOFORGE_MODS_TOML: &str =
+    include_str!("../templates/stonecutter/neoforge/neoforge.mods.toml");
+
+// Fabric/NeoForge platform gradle.properties (unchanged — just sets loom.platform)
+pub const TMPL_FABRIC_GRADLE_PROPS: &str = include_str!("../templates/fabric/gradle.properties");
+pub const TMPL_NEOFORGE_GRADLE_PROPS: &str =
+    include_str!("../templates/neoforge/gradle.properties");
+
+// --- Binary templates (include_bytes!) ---
 pub const GRADLE_WRAPPER_JAR: &[u8] =
     include_bytes!("../templates/gradle-wrapper/gradle-wrapper.jar");
 pub const GRADLE_WRAPPER_PROPS: &str =
@@ -82,69 +97,72 @@ pub fn render(template: &str, vars: &HashMap<String, String>) -> Result<String> 
     Ok(result)
 }
 
-/// All the values needed to render templates.
-pub struct TemplateVars<'a> {
-    pub mod_id: &'a str,
-    pub mod_name: &'a str,
-    pub package: &'a str,
-    pub class_name: &'a str,
-    pub author: &'a str,
-    pub description: &'a str,
-    pub language: &'a str,
-    pub minecraft_version: &'a str,
-    pub fabric_loader_version: &'a str,
-    pub fabric_api_version: &'a str,
-    pub neoforge_version: &'a str,
-    pub enabled_platforms: &'a str,
-    pub modrinth_id: Option<&'a str>,
-    pub curseforge_id: Option<&'a str>,
-}
-
-/// Build the standard set of template variables from a `TemplateVars` struct.
-pub fn build_vars(tv: &TemplateVars) -> HashMap<String, String> {
+/// Build the common template variables from an McmodConfig.
+/// These are used for all templates rendered at init time.
+pub fn build_common_vars(config: &McmodConfig) -> HashMap<String, String> {
     let mut vars = HashMap::new();
-    vars.insert("mod_id".to_string(), tv.mod_id.to_string());
-    vars.insert("mod_name".to_string(), tv.mod_name.to_string());
-    vars.insert("package".to_string(), tv.package.to_string());
+    vars.insert("mod_id".to_string(), config.mod_info.mod_id.clone());
+    vars.insert("mod_name".to_string(), config.mod_info.mod_name.clone());
+    vars.insert("package".to_string(), config.mod_info.package.clone());
     vars.insert(
         "package_path".to_string(),
-        crate::util::package_to_path(tv.package),
+        crate::util::package_to_path(&config.mod_info.package),
     );
-    vars.insert("class_name".to_string(), tv.class_name.to_string());
-    vars.insert("author".to_string(), tv.author.to_string());
-    vars.insert("description".to_string(), tv.description.to_string());
-    vars.insert("language".to_string(), tv.language.to_string());
     vars.insert(
-        "minecraft_version".to_string(),
-        tv.minecraft_version.to_string(),
+        "class_name".to_string(),
+        crate::util::derive_class_name(&config.mod_info.mod_id),
     );
+    vars.insert("author".to_string(), config.mod_info.author.clone());
+    vars.insert(
+        "description".to_string(),
+        config.mod_info.description.clone(),
+    );
+    vars.insert("language".to_string(), config.mod_info.language.clone());
+    vars.insert("year".to_string(), chrono_year());
+
+    // Stonecutter-specific
+    vars.insert(
+        "stonecutter_versions".to_string(),
+        config.stonecutter_versions(),
+    );
+    vars.insert(
+        "active_version".to_string(),
+        config.active_version().to_string(),
+    );
+    vars.insert(
+        "architectury_plugin_version".to_string(),
+        config.versions.architectury_plugin.clone(),
+    );
+    vars.insert(
+        "architectury_loom_version".to_string(),
+        config.versions.architectury_loom.clone(),
+    );
+
+    if let Some(ref pub_config) = config.publishing {
+        vars.insert("modrinth_id".to_string(), pub_config.modrinth_id.clone());
+        if let Some(ref id) = pub_config.curseforge_id {
+            vars.insert("curseforge_id".to_string(), id.clone());
+        }
+    }
+    vars
+}
+
+/// Build per-version template variables for a specific VersionTarget.
+/// Used to render the per-version gradle.properties.
+pub fn build_version_vars(target: &VersionTarget) -> HashMap<String, String> {
+    let mut vars = HashMap::new();
     vars.insert(
         "fabric_loader_version".to_string(),
-        tv.fabric_loader_version.to_string(),
+        target.fabric_loader.clone(),
     );
     vars.insert(
         "fabric_api_version".to_string(),
-        tv.fabric_api_version.to_string(),
+        target.fabric_api.clone(),
     );
-    vars.insert("neoforge_version".to_string(), tv.neoforge_version.to_string());
-    vars.insert(
-        "neoforge_major".to_string(),
-        crate::util::neoforge_major(tv.neoforge_version),
-    );
-    vars.insert(
-        "year".to_string(),
-        chrono_year(),
-    );
-    vars.insert(
-        "enabled_platforms".to_string(),
-        tv.enabled_platforms.to_string(),
-    );
-    if let Some(id) = tv.modrinth_id {
-        vars.insert("modrinth_id".to_string(), id.to_string());
-    }
-    if let Some(id) = tv.curseforge_id {
-        vars.insert("curseforge_id".to_string(), id.to_string());
-    }
+    vars.insert("neoforge_version".to_string(), target.neoforge.clone());
+    vars.insert("mc_dep_fabric".to_string(), target.mc_dep_fabric());
+    vars.insert("mc_dep_neoforge".to_string(), target.mc_dep_neoforge());
+    vars.insert("neoforge_dep".to_string(), target.neoforge_dep());
     vars
 }
 

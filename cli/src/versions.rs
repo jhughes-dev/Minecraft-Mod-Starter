@@ -1,65 +1,7 @@
-use crate::config::Versions;
+#![allow(dead_code)]
+
 use crate::error::McmodError;
 use crate::util::http_get;
-use colored::Colorize;
-
-/// Fetch the latest versions from online APIs, falling back to defaults on failure.
-/// If `offline` is true, returns defaults immediately without fetching.
-pub fn fetch_versions(offline: bool) -> Versions {
-    if offline {
-        println!("{}", "  Using offline defaults for versions".yellow());
-        return Versions::default();
-    }
-
-    println!("{}", "  Fetching latest versions...".cyan());
-
-    let minecraft = fetch_minecraft_version().unwrap_or_else(|e| {
-        eprintln!(
-            "{}",
-            format!("  Warning: Could not fetch Minecraft version: {e}").yellow()
-        );
-        Versions::default().minecraft
-    });
-
-    let fabric_loader = fetch_fabric_loader_version().unwrap_or_else(|e| {
-        eprintln!(
-            "{}",
-            format!("  Warning: Could not fetch Fabric Loader version: {e}").yellow()
-        );
-        Versions::default().fabric_loader
-    });
-
-    let fabric_api = fetch_fabric_api_version(&minecraft).unwrap_or_else(|e| {
-        eprintln!(
-            "{}",
-            format!("  Warning: Could not fetch Fabric API version: {e}").yellow()
-        );
-        Versions::default().fabric_api
-    });
-
-    let neoforge = fetch_neoforge_version(&minecraft).unwrap_or_else(|e| {
-        eprintln!(
-            "{}",
-            format!("  Warning: Could not fetch NeoForge version: {e}").yellow()
-        );
-        Versions::default().neoforge
-    });
-
-    println!(
-        "{}",
-        format!(
-            "  Minecraft: {minecraft}, Fabric Loader: {fabric_loader}, Fabric API: {fabric_api}, NeoForge: {neoforge}"
-        )
-        .green()
-    );
-
-    Versions {
-        minecraft,
-        fabric_loader,
-        fabric_api,
-        neoforge,
-    }
-}
 
 /// Parse `<version>` tags from Maven metadata XML, returning all version strings.
 fn parse_maven_versions(xml: &str) -> Vec<String> {
@@ -91,7 +33,7 @@ fn fetch_stable_from_fabric_meta(endpoint: &str, error_msg: &str) -> Result<Stri
 }
 
 /// Fetch latest stable Minecraft version from Fabric Meta API.
-fn fetch_minecraft_version() -> Result<String, McmodError> {
+pub fn fetch_minecraft_version() -> Result<String, McmodError> {
     fetch_stable_from_fabric_meta(
         "https://meta.fabricmc.net/v2/versions/game",
         "No stable Minecraft version found",
@@ -99,7 +41,7 @@ fn fetch_minecraft_version() -> Result<String, McmodError> {
 }
 
 /// Fetch latest stable Fabric Loader version from Fabric Meta API.
-fn fetch_fabric_loader_version() -> Result<String, McmodError> {
+pub fn fetch_fabric_loader_version() -> Result<String, McmodError> {
     fetch_stable_from_fabric_meta(
         "https://meta.fabricmc.net/v2/versions/loader",
         "No stable Fabric Loader version found",
@@ -107,7 +49,7 @@ fn fetch_fabric_loader_version() -> Result<String, McmodError> {
 }
 
 /// Fetch latest Fabric API version for the given Minecraft version from Maven metadata.
-fn fetch_fabric_api_version(mc_version: &str) -> Result<String, McmodError> {
+pub fn fetch_fabric_api_version(mc_version: &str) -> Result<String, McmodError> {
     let url = "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml";
     let body = http_get(url)?;
     let suffix = format!("+{mc_version}");
@@ -124,7 +66,7 @@ fn fetch_fabric_api_version(mc_version: &str) -> Result<String, McmodError> {
 }
 
 /// Fetch latest NeoForge version for the given Minecraft version from Maven metadata.
-fn fetch_neoforge_version(mc_version: &str) -> Result<String, McmodError> {
+pub fn fetch_neoforge_version(mc_version: &str) -> Result<String, McmodError> {
     let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
     let body = http_get(url)?;
 

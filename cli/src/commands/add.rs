@@ -451,11 +451,12 @@ pub fn add_fabric_files(
 ) -> Result<()> {
     let package_path = vars.get("package_path").unwrap();
     let class_name = vars.get("class_name").unwrap();
+    let mod_id = vars.get("mod_id").unwrap();
 
-    // fabric/build.gradle
+    // fabric/build.gradle.kts
     write_file(
-        &dir.join("fabric/build.gradle"),
-        template::TMPL_FABRIC_BUILD_GRADLE,
+        &dir.join("fabric/build.gradle.kts"),
+        template::SC_FABRIC_BUILD_GRADLE,
     )?;
 
     // fabric/gradle.properties
@@ -480,11 +481,10 @@ pub fn add_fabric_files(
     // fabric.mod.json
     write_file(
         &dir.join("fabric/src/main/resources/fabric.mod.json"),
-        &render(template::TMPL_FABRIC_MOD_JSON, vars)?,
+        &render(template::SC_FABRIC_MOD_JSON, vars)?,
     )?;
 
     // mixins.json
-    let mod_id = vars.get("mod_id").unwrap();
     write_file(
         &dir.join(format!(
             "fabric/src/main/resources/{mod_id}.mixins.json"
@@ -512,10 +512,10 @@ pub fn add_neoforge_files(
     let package_path = vars.get("package_path").unwrap();
     let class_name = vars.get("class_name").unwrap();
 
-    // neoforge/build.gradle
+    // neoforge/build.gradle.kts
     write_file(
-        &dir.join("neoforge/build.gradle"),
-        template::TMPL_NEOFORGE_BUILD_GRADLE,
+        &dir.join("neoforge/build.gradle.kts"),
+        template::SC_NEOFORGE_BUILD_GRADLE,
     )?;
 
     // neoforge/gradle.properties
@@ -540,7 +540,7 @@ pub fn add_neoforge_files(
     // neoforge.mods.toml
     write_file(
         &dir.join("neoforge/src/main/resources/META-INF/neoforge.mods.toml"),
-        &render(template::TMPL_NEOFORGE_MODS_TOML, vars)?,
+        &render(template::SC_NEOFORGE_MODS_TOML, vars)?,
     )?;
 
     Ok(())
@@ -557,25 +557,5 @@ pub fn add_ci_files(dir: &Path, vars: &HashMap<String, String>) -> Result<()> {
 
 /// Build template variables from an existing config.
 fn build_vars_from_config(config: &McmodConfig) -> HashMap<String, String> {
-    let class_name = derive_class_name(&config.mod_info.mod_id);
-    let enabled_platforms = config.enabled_platforms().join(",");
-    template::build_vars(&template::TemplateVars {
-        mod_id: &config.mod_info.mod_id,
-        mod_name: &config.mod_info.mod_name,
-        package: &config.mod_info.package,
-        class_name: &class_name,
-        author: &config.mod_info.author,
-        description: &config.mod_info.description,
-        language: &config.mod_info.language,
-        minecraft_version: &config.versions.minecraft,
-        fabric_loader_version: &config.versions.fabric_loader,
-        fabric_api_version: &config.versions.fabric_api,
-        neoforge_version: &config.versions.neoforge,
-        enabled_platforms: &enabled_platforms,
-        modrinth_id: config.publishing.as_ref().map(|p| p.modrinth_id.as_str()),
-        curseforge_id: config
-            .publishing
-            .as_ref()
-            .and_then(|p| p.curseforge_id.as_deref()),
-    })
+    template::build_common_vars(config)
 }

@@ -7,6 +7,7 @@ mod install;
 mod pack_format;
 mod template;
 mod util;
+mod version_meta;
 mod versions;
 
 use clap::{Parser, Subcommand};
@@ -81,6 +82,10 @@ enum Commands {
         #[arg(long)]
         testing: Option<bool>,
 
+        /// Minecraft versions to target (can be specified multiple times)
+        #[arg(long = "minecraft")]
+        minecraft_versions: Vec<String>,
+
         /// Skip online version fetching, use defaults
         #[arg(long)]
         offline: bool,
@@ -133,6 +138,7 @@ fn main() {
             description,
             language,
             loaders,
+            minecraft_versions,
             ci,
             server,
             publishing,
@@ -150,6 +156,7 @@ fn main() {
             description,
             language,
             loaders,
+            minecraft_versions,
             ci,
             server,
             publishing,

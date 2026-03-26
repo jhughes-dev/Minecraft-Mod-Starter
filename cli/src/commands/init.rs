@@ -1,9 +1,8 @@
-use crate::commands::add;
-use crate::config::McmodConfig;
+use crate::config::{McmodConfig, VersionTarget, Versions};
 use crate::error::Result;
-use crate::template::{self, render};
-use crate::util::{derive_class_name, write_binary, write_file};
-use crate::versions::fetch_versions;
+use crate::template::{self, render, strip_conditional_blocks};
+use crate::util::{write_binary, write_file};
+use crate::version_meta;
 use colored::Colorize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -84,6 +83,7 @@ pub struct InitOptions {
     pub description: Option<String>,
     pub language: Option<String>,
     pub loaders: Vec<String>,
+    pub minecraft_versions: Vec<String>,
     pub ci: Option<bool>,
     pub server: Option<bool>,
     pub publishing: Option<bool>,
@@ -174,7 +174,12 @@ pub fn run(opts: InitOptions) -> Result<()> {
         };
         prompt_select("Language", &["java", "kotlin"], default_idx)?
     } else {
-        global.defaults.language.as_deref().unwrap_or("java").to_string()
+        global
+            .defaults
+            .language
+            .as_deref()
+            .unwrap_or("java")
+            .to_string()
     };
 
     let loaders = if !opts.loaders.is_empty() {
@@ -190,6 +195,39 @@ pub fn run(opts: InitOptions) -> Result<()> {
             "At least one loader must be selected".to_string(),
         ));
     }
+
+    // Minecraft version targets
+    let mc_targets: Vec<String> = if !opts.minecraft_versions.is_empty() {
+        opts.minecraft_versions
+    } else if interactive {
+        let supported = version_meta::supported_versions();
+        let selections = prompt_multiselect("Minecraft versions to target", &supported)?;
+        if selections.is_empty() {
+            // Default to latest
+            vec![supported.last().unwrap().to_string()]
+        } else {
+            selections
+        }
+    } else {
+        // Default: latest supported version
+        vec![version_meta::supported_versions()
+            .last()
+            .unwrap()
+            .to_string()]
+    };
+
+    // Validate all targets exist in version_meta
+    for target in &mc_targets {
+        if version_meta::get_version_meta(target).is_none() {
+            return Err(crate::error::McmodError::Other(format!(
+                "Unsupported Minecraft version: {target}. Supported: {}",
+                version_meta::supported_versions().join(", ")
+            )));
+        }
+    }
+
+    let target_refs: Vec<&str> = mc_targets.iter().map(|s| s.as_str()).collect();
+    let version_targets: Vec<VersionTarget> = version_meta::targets_to_ranges(&target_refs);
 
     let ci = if let Some(c) = opts.ci {
         c
@@ -214,7 +252,10 @@ pub fn run(opts: InitOptions) -> Result<()> {
             );
             let accepted = prompt_confirm("  Do you accept the Minecraft EULA?", false)?;
             if !accepted {
-                println!("{}", "  Server support skipped (EULA not accepted).".yellow());
+                println!(
+                    "{}",
+                    "  Server support skipped (EULA not accepted).".yellow()
+                );
             }
             accepted
         } else {
@@ -242,10 +283,18 @@ pub fn run(opts: InitOptions) -> Result<()> {
             mod_id.clone()
         };
         let cf_id = if let Some(id) = opts.curseforge_id {
-            if id.is_empty() { None } else { Some(id) }
+            if id.is_empty() {
+                None
+            } else {
+                Some(id)
+            }
         } else if interactive {
             let input = prompt_input("CurseForge project ID (leave blank to skip)", "")?;
-            if input.is_empty() { None } else { Some(input) }
+            if input.is_empty() {
+                None
+            } else {
+                Some(input)
+            }
         } else {
             None
         };
@@ -262,119 +311,29 @@ pub fn run(opts: InitOptions) -> Result<()> {
         true
     };
 
-    let offline = opts.offline;
+    // Build Versions config
+    let versions = Versions {
+        targets: version_targets,
+        architectury_plugin: version_meta::best_plugin_version(&target_refs).to_string(),
+        architectury_loom: version_meta::best_loom_version(&target_refs).to_string(),
+    };
 
-    // Fetch versions
-    let versions = fetch_versions(offline);
-
-    // Derive values
-    let class_name = derive_class_name(&mod_id);
     let has_fabric = loaders.iter().any(|l| l == "fabric");
     let has_neoforge = loaders.iter().any(|l| l == "neoforge");
 
-    let enabled_platforms = loaders.join(",");
-
-    let vars = template::build_vars(&template::TemplateVars {
-        mod_id: &mod_id,
-        mod_name: &mod_name,
-        package: &package,
-        class_name: &class_name,
-        author: &author,
-        description: &description,
-        language: &language,
-        minecraft_version: &versions.minecraft,
-        fabric_loader_version: &versions.fabric_loader,
-        fabric_api_version: &versions.fabric_api,
-        neoforge_version: &versions.neoforge,
-        enabled_platforms: &enabled_platforms,
-        modrinth_id: modrinth_id.as_deref(),
-        curseforge_id: curseforge_id.as_deref(),
-    });
-
-    // Create project directory
-    let project_dir = &opts.dir;
-    crate::util::ensure_dir(project_dir)?;
-
-    println!("{}", format!("  Creating project in {}", project_dir.display()).cyan());
-
-    // Write base files
-    write_base_files(project_dir, &vars, &language)?;
-
-    // Write common module
-    write_common_module(project_dir, &vars, &language)?;
-
-    // Write loader modules
-    if has_fabric {
-        add::add_fabric_files(project_dir, &vars, &language)?;
-        crate::gradle::add_include_to_settings(project_dir, "fabric")?;
-        println!("{}", "  Created fabric/ module".green());
-    }
-    if has_neoforge {
-        add::add_neoforge_files(project_dir, &vars, &language)?;
-        crate::gradle::add_include_to_settings(project_dir, "neoforge")?;
-        println!("{}", "  Created neoforge/ module".green());
-    }
-
-    // Copy global options.txt template into run/ (shared by both loaders)
-    match create_run_options(project_dir, &global) {
-        Ok(()) => println!("{}", "  Created run/options.txt".green()),
-        Err(e) => eprintln!("  {}", format!("Warning: Could not create options.txt: {e}").yellow()),
-    }
-
-    // Write dev-defaults data pack for game rule configuration
-    match crate::pack_format::write_dev_datapack(project_dir, &global, &versions.minecraft) {
-        Ok(()) => println!("{}", "  Created run/world/datapacks/dev-defaults/".green()),
-        Err(e) => eprintln!("  {}", format!("Warning: Could not create dev data pack: {e}").yellow()),
-    }
-
-    // Write server files if server support enabled
-    if server {
-        write_file(
-            &project_dir.join("run/eula.txt"),
-            "# Accepted during mcmod init\n# https://aka.ms/MinecraftEULA\neula=true\n",
-        )?;
-        write_file(
-            &project_dir.join("run/server.properties"),
-            SERVER_PROPERTIES,
-        )?;
-        println!("{}", "  Created run/eula.txt (EULA accepted)".green());
-        println!("{}", "  Created run/server.properties (online-mode=false)".green());
-    }
-
-    // Write CI
-    if ci {
-        add::add_ci_files(project_dir, &vars)?;
-        println!("{}", "  Created .github/workflows/build.yml".green());
-    }
-
-    // Write testing files
-    if testing {
-        add::add_testing_files(project_dir, &vars, &language, has_fabric, has_neoforge)?;
-        crate::gradle::set_gradle_property(project_dir, "testing_enabled", "true")?;
-    }
-
-    // Write publishing files
     let publishing_config = if publishing_enabled {
-        let mr_id = modrinth_id.as_deref().unwrap_or(&mod_id);
-        add::add_publishing_files(
-            project_dir,
-            &vars,
-            has_fabric,
-            has_neoforge,
-            curseforge_id.is_some(),
-        )?;
-        println!("{}", "  Created .github/workflows/release.yml".green());
-        println!("{}", "  Created changelogs/v1.0.0.md".green());
-        println!("{}", "  Created MODPAGE.md".green());
         Some(crate::config::Publishing {
-            modrinth_id: mr_id.to_string(),
+            modrinth_id: modrinth_id
+                .as_deref()
+                .unwrap_or(&mod_id)
+                .to_string(),
             curseforge_id: curseforge_id.clone(),
         })
     } else {
         None
     };
 
-    // Write mcmod.toml
+    // Build McmodConfig
     let config = McmodConfig::new(
         mod_id.clone(),
         mod_name.clone(),
@@ -389,9 +348,112 @@ pub fn run(opts: InitOptions) -> Result<()> {
         publishing_config,
         versions,
     );
+
+    // Build template variables
+    let vars = template::build_common_vars(&config);
+
+    // Create project directory
+    let project_dir = &opts.dir;
+    crate::util::ensure_dir(project_dir)?;
+
+    println!(
+        "{}",
+        format!("  Creating project in {}", project_dir.display()).cyan()
+    );
+
+    // Write Stonecutter project files
+    write_stonecutter_files(project_dir, &config, &vars)?;
+
+    // Write common source (root src/)
+    write_common_source(project_dir, &vars, &language)?;
+
+    // Write loader modules
+    if has_fabric {
+        write_fabric_module(project_dir, &vars, &language)?;
+        println!("{}", "  Created fabric/ module".green());
+    }
+    if has_neoforge {
+        write_neoforge_module(project_dir, &vars, &language)?;
+        println!("{}", "  Created neoforge/ module".green());
+    }
+
+    // Per-version gradle.properties
+    for target in &config.versions.targets {
+        let ver_vars = template::build_version_vars(target);
+        let content = render(template::SC_VERSION_GRADLE_PROPERTIES, &ver_vars)?;
+        write_file(
+            &project_dir.join(format!("versions/{}/gradle.properties", target.minecraft)),
+            &content,
+        )?;
+        println!(
+            "{}",
+            format!("  Created versions/{}/gradle.properties", target.minecraft).green()
+        );
+    }
+
+    // Copy global options.txt template into run/ (shared by both loaders)
+    match create_run_options(project_dir, &global) {
+        Ok(()) => println!("{}", "  Created run/options.txt".green()),
+        Err(e) => eprintln!(
+            "  {}",
+            format!("Warning: Could not create options.txt: {e}").yellow()
+        ),
+    }
+
+    // Write dev-defaults data pack using the active (first) version
+    let active_mc = config.active_version();
+    match crate::pack_format::write_dev_datapack(project_dir, &global, active_mc) {
+        Ok(()) => println!(
+            "{}",
+            "  Created run/world/datapacks/dev-defaults/".green()
+        ),
+        Err(e) => eprintln!(
+            "  {}",
+            format!("Warning: Could not create dev data pack: {e}").yellow()
+        ),
+    }
+
+    // Write server files if server support enabled
+    if server {
+        write_file(
+            &project_dir.join("run/eula.txt"),
+            "# Accepted during mcmod init\n# https://aka.ms/MinecraftEULA\neula=true\n",
+        )?;
+        write_file(
+            &project_dir.join("run/server.properties"),
+            SERVER_PROPERTIES,
+        )?;
+        println!("{}", "  Created run/eula.txt (EULA accepted)".green());
+        println!(
+            "{}",
+            "  Created run/server.properties (online-mode=false)".green()
+        );
+    }
+
+    // Write CI
+    if ci {
+        crate::commands::add::add_ci_files(project_dir, &vars)?;
+        println!("{}", "  Created .github/workflows/build.yml".green());
+    }
+
+    // Write mcmod.toml
     config.save(project_dir)?;
 
     // Print success
+    let target_list = config
+        .versions
+        .targets
+        .iter()
+        .map(|t| {
+            if t.minecraft == t.max_minecraft {
+                t.minecraft.clone()
+            } else {
+                format!("{}-{}", t.minecraft, t.max_minecraft)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
     println!("\n{}", "  Project created successfully!".bold().green());
     println!();
     println!("  {}", format!("  Mod ID:      {mod_id}").white());
@@ -402,40 +464,57 @@ pub fn run(opts: InitOptions) -> Result<()> {
         "  {}",
         format!("  Loaders:     {}", loaders.join(", ")).white()
     );
+    println!(
+        "  {}",
+        format!("  MC Targets:  {target_list}").white()
+    );
     println!("  {}", format!("  CI:          {ci}").white());
     println!("  {}", format!("  Testing:     {testing}").white());
     println!();
-    println!(
-        "  {}",
-        "  Next steps:".bold()
-    );
+    println!("  {}", "  Next steps:".bold());
     println!("    cd {}", project_dir.display());
-    println!("    ./gradlew build");
+    println!("    ./gradlew chiseledBuild");
     println!();
 
     Ok(())
 }
 
-fn write_base_files(dir: &Path, vars: &HashMap<String, String>, language: &str) -> Result<()> {
-    // build.gradle (root) — no placeholders, copy as-is
+// --- File writing ---
+
+fn write_stonecutter_files(
+    dir: &Path,
+    config: &McmodConfig,
+    vars: &HashMap<String, String>,
+) -> Result<()> {
+    let has_fabric = config.loaders.fabric;
+    let has_neoforge = config.loaders.neoforge;
+    let is_kotlin = config.mod_info.language == "kotlin";
+
+    let conditions = &[
+        ("fabric", has_fabric),
+        ("neoforge", has_neoforge),
+        ("kotlin", is_kotlin),
+    ];
+
+    // stonecutter.gradle.kts
     write_file(
-        &dir.join("build.gradle"),
-        template::TMPL_BUILD_GRADLE_ROOT,
+        &dir.join("stonecutter.gradle.kts"),
+        &render(template::SC_STONECUTTER_GRADLE, vars)?,
     )?;
 
-    // settings.gradle — has {{mod_id}} placeholder
-    write_file(
-        &dir.join("settings.gradle"),
-        &render(template::TMPL_SETTINGS_GRADLE, vars)?,
-    )?;
+    // settings.gradle.kts — strip conditional blocks first, then render
+    let settings = strip_conditional_blocks(template::SC_SETTINGS_GRADLE, conditions);
+    write_file(&dir.join("settings.gradle.kts"), &render(&settings, vars)?)?;
 
-    // gradle.properties
-    let mut props = render(template::TMPL_GRADLE_PROPERTIES, vars)?;
-    // Add language properties if kotlin
-    if language == "kotlin" {
-        props.push_str("\nmod_language=kotlin\nkotlin_version=2.1.0\n");
-    }
-    write_file(&dir.join("gradle.properties"), &props)?;
+    // build.gradle.kts — strip conditionals first (removes {{kotlin_version}} if not kotlin), then render
+    let build = strip_conditional_blocks(template::SC_BUILD_GRADLE, conditions);
+    write_file(&dir.join("build.gradle.kts"), &render(&build, vars)?)?;
+
+    // gradle.properties — shared props
+    write_file(
+        &dir.join("gradle.properties"),
+        &render(template::SC_GRADLE_PROPERTIES, vars)?,
+    )?;
 
     // .gitignore
     write_file(&dir.join(".gitignore"), template::TMPL_GITIGNORE)?;
@@ -464,46 +543,141 @@ fn write_base_files(dir: &Path, vars: &HashMap<String, String>, language: &str) 
         std::fs::set_permissions(dir.join("gradlew"), perms)?;
     }
 
-    println!("{}", "  Created base project files".green());
+    println!("{}", "  Created Stonecutter project files".green());
     Ok(())
 }
 
-fn write_common_module(
+/// Write shared source files into root `src/` (the Stonecutter "common" project).
+fn write_common_source(
     dir: &Path,
     vars: &HashMap<String, String>,
     language: &str,
 ) -> Result<()> {
     let package_path = vars.get("package_path").unwrap();
+    let class_name = vars.get("class_name").unwrap();
+    let mod_id = vars.get("mod_id").unwrap();
 
-    // common/build.gradle
-    write_file(
-        &dir.join("common/build.gradle"),
-        template::TMPL_COMMON_BUILD_GRADLE,
-    )?;
-
-    // Source file
     let (template, ext, source_dir) = if language == "kotlin" {
         (template::TMPL_COMMON_MOD_KT, "kt", "kotlin")
     } else {
         (template::TMPL_COMMON_MOD_JAVA, "java", "java")
     };
 
-    let class_name = vars.get("class_name").unwrap();
     let source_path = dir.join(format!(
-        "common/src/main/{source_dir}/{package_path}/{class_name}.{ext}"
+        "src/main/{source_dir}/{package_path}/{class_name}.{ext}"
     ));
     write_file(&source_path, &render(template, vars)?)?;
 
     // assets/<mod_id>/icon.png.txt
-    let mod_id = vars.get("mod_id").unwrap();
     write_file(
         &dir.join(format!(
-            "common/src/main/resources/assets/{mod_id}/icon.png.txt"
+            "src/main/resources/assets/{mod_id}/icon.png.txt"
         )),
         "Replace this file with your mod icon (icon.png)\n",
     )?;
 
-    println!("{}", "  Created common/ module".green());
+    println!("{}", "  Created common source in src/".green());
+    Ok(())
+}
+
+fn write_fabric_module(
+    dir: &Path,
+    vars: &HashMap<String, String>,
+    language: &str,
+) -> Result<()> {
+    let package_path = vars.get("package_path").unwrap();
+    let class_name = vars.get("class_name").unwrap();
+    let mod_id = vars.get("mod_id").unwrap();
+
+    // fabric/build.gradle.kts
+    write_file(
+        &dir.join("fabric/build.gradle.kts"),
+        template::SC_FABRIC_BUILD_GRADLE,
+    )?;
+
+    // fabric/gradle.properties (just loom.platform)
+    write_file(
+        &dir.join("fabric/gradle.properties"),
+        template::TMPL_FABRIC_GRADLE_PROPS,
+    )?;
+
+    // fabric.mod.json — has both {{}} CLI placeholders and ${} Gradle expand tokens
+    write_file(
+        &dir.join("fabric/src/main/resources/fabric.mod.json"),
+        &render(template::SC_FABRIC_MOD_JSON, vars)?,
+    )?;
+
+    // Mixins JSON
+    write_file(
+        &dir.join(format!("fabric/src/main/resources/{mod_id}.mixins.json")),
+        &render(template::TMPL_FABRIC_MIXINS_JSON, vars)?,
+    )?;
+
+    // Mixin package-info.java
+    write_file(
+        &dir.join(format!(
+            "fabric/src/main/java/{package_path}/mixin/package-info.java"
+        )),
+        &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars)?,
+    )?;
+
+    // Entry point source file
+    let (tmpl, ext, src_dir) = if language == "kotlin" {
+        (template::TMPL_FABRIC_MOD_KT, "kt", "kotlin")
+    } else {
+        (template::TMPL_FABRIC_MOD_JAVA, "java", "java")
+    };
+
+    write_file(
+        &dir.join(format!(
+            "fabric/src/main/{src_dir}/{package_path}/fabric/{class_name}Fabric.{ext}"
+        )),
+        &render(tmpl, vars)?,
+    )?;
+
+    Ok(())
+}
+
+fn write_neoforge_module(
+    dir: &Path,
+    vars: &HashMap<String, String>,
+    language: &str,
+) -> Result<()> {
+    let package_path = vars.get("package_path").unwrap();
+    let class_name = vars.get("class_name").unwrap();
+
+    // neoforge/build.gradle.kts
+    write_file(
+        &dir.join("neoforge/build.gradle.kts"),
+        template::SC_NEOFORGE_BUILD_GRADLE,
+    )?;
+
+    // neoforge/gradle.properties (just loom.platform)
+    write_file(
+        &dir.join("neoforge/gradle.properties"),
+        template::TMPL_NEOFORGE_GRADLE_PROPS,
+    )?;
+
+    // neoforge.mods.toml — has both {{}} CLI placeholders and ${} Gradle expand tokens
+    write_file(
+        &dir.join("neoforge/src/main/resources/META-INF/neoforge.mods.toml"),
+        &render(template::SC_NEOFORGE_MODS_TOML, vars)?,
+    )?;
+
+    // Entry point source file
+    let (tmpl, ext, src_dir) = if language == "kotlin" {
+        (template::TMPL_NEOFORGE_MOD_KT, "kt", "kotlin")
+    } else {
+        (template::TMPL_NEOFORGE_MOD_JAVA, "java", "java")
+    };
+
+    write_file(
+        &dir.join(format!(
+            "neoforge/src/main/{src_dir}/{package_path}/neoforge/{class_name}NeoForge.{ext}"
+        )),
+        &render(tmpl, vars)?,
+    )?;
+
     Ok(())
 }
 
@@ -548,14 +722,16 @@ fn prompt_confirm(prompt: &str, default: bool) -> Result<bool> {
     Ok(result)
 }
 
-fn create_run_options(project_dir: &Path, config: &crate::global_config::GlobalConfig) -> Result<()> {
+fn create_run_options(
+    project_dir: &Path,
+    config: &crate::global_config::GlobalConfig,
+) -> Result<()> {
     let run_dir = project_dir.join("run");
     crate::util::ensure_dir(&run_dir)?;
     crate::global_config::copy_options_to(&run_dir.join("options.txt"), config)
 }
 
 /// Converts an author name to a valid Java package segment (lowercase, alphanumeric).
-/// e.g. "Malteas" -> "malteas", "John Doe" -> "johndoe"
 fn slugify_for_package(author: &str) -> String {
     let slug: String = author
         .chars()
@@ -571,7 +747,6 @@ fn slugify_for_package(author: &str) -> String {
 }
 
 /// Converts a directory name to a valid mod ID (lowercase, underscores).
-/// e.g. "My Cool Mod" -> "my_cool_mod", "some-project" -> "some_project"
 fn slugify_dir_name(dir: &Path) -> String {
     let name = dir
         .file_name()
@@ -589,14 +764,12 @@ fn slugify_dir_name(dir: &Path) -> String {
         })
         .collect();
 
-    // Collapse consecutive underscores and trim leading/trailing ones
     let slug: String = slug
         .split('_')
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("_");
 
-    // Must start with a letter; fall back if empty or starts with digit
     if slug.is_empty() || slug.starts_with(|c: char| c.is_ascii_digit()) {
         "mymod".to_string()
     } else {
