@@ -21,10 +21,10 @@ stonecutter {
         fun mc(version: String, vararg loaders: String) {
             for (it in loaders) version("$version-$it", version)
         }
-{{mc_versions_block}}
-        vcsVersion = "{{active_version}}"
+        mc("1.21.1", "fabric", "neoforge")
+        vcsVersion = "1.21.1-fabric"
     }
     create(rootProject)
 }
 
-rootProject.name = "{{mod_id}}"
+rootProject.name = "testmod"

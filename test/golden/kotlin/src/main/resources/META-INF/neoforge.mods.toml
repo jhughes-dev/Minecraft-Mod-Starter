@@ -3,15 +3,15 @@ loaderVersion = "[4,)"
 license = "MIT"
 
 [[mixins]]
-config = "{{mod_id}}.mixins.json"
+config = "testmod.mixins.json"
 
 [[mods]]
 modId = "${id}"
 version = "${version}"
 displayName = "${name}"
 description = "${description}"
-authors = "{{author}}"
-logoFile = "assets/{{mod_id}}/icon.png"
+authors = "TestAuthor"
+logoFile = "assets/testmod/icon.png"
 
 [[dependencies.${id}]]
 modId = "neoforge"

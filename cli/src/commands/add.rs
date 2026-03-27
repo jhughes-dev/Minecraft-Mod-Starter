@@ -41,19 +41,19 @@ fn run_add_fabric(dir: &Path) -> Result<()> {
 
     let vars = build_vars_from_config(&config);
 
-    add_fabric_files(dir, &vars, &config.mod_info.language)?;
+    // Write fabric.mod.json into unified src/main/resources/
+    add_fabric_files(dir, &vars)?;
 
-    // Update settings.gradle
-    gradle::add_include_to_settings(dir, "fabric")?;
+    // Update settings.gradle.kts to add fabric loader
+    gradle::add_loader_to_settings_kts(dir, "fabric")?;
 
-    // Update gradle.properties enabled_platforms
-    gradle::add_platform_to_gradle_properties(dir, "fabric")?;
-
-    // Update config
+    // Regenerate unified source with both loaders
     config.loaders.fabric = true;
+    regenerate_unified_source(dir, &config)?;
+
     config.save(dir)?;
 
-    println!("{}", "  Fabric module added successfully!".bold().green());
+    println!("{}", "  Fabric loader added successfully!".bold().green());
     Ok(())
 }
 
@@ -67,19 +67,19 @@ fn run_add_neoforge(dir: &Path) -> Result<()> {
 
     let vars = build_vars_from_config(&config);
 
-    add_neoforge_files(dir, &vars, &config.mod_info.language)?;
+    // Write neoforge.mods.toml into unified src/main/resources/
+    add_neoforge_files(dir, &vars)?;
 
-    // Update settings.gradle
-    gradle::add_include_to_settings(dir, "neoforge")?;
+    // Update settings.gradle.kts to add neoforge loader
+    gradle::add_loader_to_settings_kts(dir, "neoforge")?;
 
-    // Update gradle.properties enabled_platforms
-    gradle::add_platform_to_gradle_properties(dir, "neoforge")?;
-
-    // Update config
+    // Regenerate unified source with both loaders
     config.loaders.neoforge = true;
+    regenerate_unified_source(dir, &config)?;
+
     config.save(dir)?;
 
-    println!("{}", "  NeoForge module added successfully!".bold().green());
+    println!("{}", "  NeoForge loader added successfully!".bold().green());
     Ok(())
 }
 
@@ -115,46 +115,31 @@ fn run_add_kotlin(dir: &Path) -> Result<()> {
     let package_path = package_to_path(&config.mod_info.package);
     let class_name = derive_class_name(&config.mod_info.mod_id);
 
-    // Migrate common module
-    migrate_to_kotlin(
-        dir,
-        "common",
-        &package_path,
-        &class_name,
-        template::TMPL_COMMON_MOD_KT,
-        &vars,
-        None, // no mixin in common
-    )?;
-
-    // Migrate fabric module if present
-    if config.loaders.fabric {
-        migrate_to_kotlin(
-            dir,
-            "fabric",
-            &format!("{package_path}/fabric"),
-            &format!("{class_name}Fabric"),
-            template::TMPL_FABRIC_MOD_KT,
-            &vars,
-            Some((&package_path, &config.mod_info.mod_name)),
-        )?;
+    // Delete Java source file (unified)
+    let java_path = dir.join(format!(
+        "src/main/java/{package_path}/{class_name}.java"
+    ));
+    if java_path.exists() {
+        std::fs::remove_file(&java_path)?;
+        cleanup_empty_dirs(&dir.join(format!("src/main/java/{package_path}")))?;
     }
 
-    // Migrate neoforge module if present
-    if config.loaders.neoforge {
-        migrate_to_kotlin(
-            dir,
-            "neoforge",
-            &format!("{package_path}/neoforge"),
-            &format!("{class_name}NeoForge"),
-            template::TMPL_NEOFORGE_MOD_KT,
-            &vars,
-            None,
+    // Create Kotlin source file (unified)
+    let kt_path = dir.join(format!(
+        "src/main/kotlin/{package_path}/{class_name}.kt"
+    ));
+    write_file(&kt_path, &render(template::SC_UNIFIED_MOD_KT, &vars)?)?;
+
+    // Ensure mixin package-info.java stays in java tree
+    let mixin_path = dir.join(format!(
+        "src/main/java/{package_path}/mixin/package-info.java"
+    ));
+    if !mixin_path.exists() {
+        write_file(
+            &mixin_path,
+            &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, &vars)?,
         )?;
     }
-
-    // Update gradle.properties
-    gradle::set_gradle_property(dir, "mod_language", "kotlin")?;
-    gradle::set_gradle_property(dir, "kotlin_version", "2.1.0")?;
 
     // Update config
     config.mod_info.language = "kotlin".to_string();
@@ -252,8 +237,8 @@ pub fn add_testing_files(
     dir: &Path,
     vars: &HashMap<String, String>,
     language: &str,
-    has_fabric: bool,
-    has_neoforge: bool,
+    _has_fabric: bool,
+    _has_neoforge: bool,
 ) -> Result<()> {
     let package_path = vars.get("package_path").unwrap();
     let class_name = vars.get("class_name").unwrap();
@@ -264,49 +249,19 @@ pub fn add_testing_files(
         (template::TMPL_COMMON_TEST_JAVA, "java", "java")
     };
 
-    // Unit test in common/src/test/
+    // Unit test in src/test/
     write_file(
         &dir.join(format!(
-            "common/src/test/{source_dir}/{package_path}/{class_name}Test.{ext}"
+            "src/test/{source_dir}/{package_path}/{class_name}Test.{ext}"
         )),
         &render(test_tmpl, vars)?,
     )?;
-    println!("{}", "  Created common/ unit test".green());
+    println!("{}", "  Created unit test".green());
 
-    // Fabric GameTest
-    if has_fabric {
-        let fabric_tmpl = if language == "kotlin" {
-            template::TMPL_FABRIC_GAMETEST_KT
-        } else {
-            template::TMPL_FABRIC_GAMETEST_JAVA
-        };
-        write_file(
-            &dir.join(format!(
-                "fabric/src/main/{source_dir}/{package_path}/fabric/{class_name}GameTest.{ext}"
-            )),
-            &render(fabric_tmpl, vars)?,
-        )?;
-
-        // Patch fabric.mod.json with gametest entrypoint
+    // Fabric GameTest entrypoint
+    if _has_fabric {
         let package = vars.get("package").unwrap();
         add_gametest_entrypoint(dir, package, class_name, language)?;
-        println!("{}", "  Created fabric/ GameTest".green());
-    }
-
-    // NeoForge GameTest
-    if has_neoforge {
-        let neoforge_tmpl = if language == "kotlin" {
-            template::TMPL_NEOFORGE_GAMETEST_KT
-        } else {
-            template::TMPL_NEOFORGE_GAMETEST_JAVA
-        };
-        write_file(
-            &dir.join(format!(
-                "neoforge/src/main/{source_dir}/{package_path}/neoforge/{class_name}GameTest.{ext}"
-            )),
-            &render(neoforge_tmpl, vars)?,
-        )?;
-        println!("{}", "  Created neoforge/ GameTest".green());
     }
 
     Ok(())
@@ -319,14 +274,17 @@ fn add_gametest_entrypoint(
     class_name: &str,
     _language: &str,
 ) -> Result<()> {
-    let path = dir.join("fabric/src/main/resources/fabric.mod.json");
+    let path = dir.join("src/main/resources/fabric.mod.json");
+    if !path.exists() {
+        return Ok(());
+    }
     let content = std::fs::read_to_string(&path)?;
 
     // Parse as JSON, add the entrypoint, and re-serialize
     let mut json: serde_json::Value = serde_json::from_str(&content)?;
 
     if let Some(entrypoints) = json.get_mut("entrypoints").and_then(|e| e.as_object_mut()) {
-        let gametest_class = format!("{package}.fabric.{class_name}GameTest");
+        let gametest_class = format!("{package}.{class_name}GameTest");
         entrypoints.insert(
             "fabric-gametest".to_string(),
             serde_json::json!([gametest_class]),
@@ -379,49 +337,105 @@ pub fn add_publishing_files(
     Ok(())
 }
 
-/// Migrate a module's Java source to Kotlin.
-fn migrate_to_kotlin(
+/// Create fabric resource metadata files (used by both init and add).
+pub fn add_fabric_files(
     dir: &Path,
-    module: &str,
-    source_package_path: &str,
-    source_class_name: &str,
-    kt_template: &str,
     vars: &HashMap<String, String>,
-    mixin_info: Option<(&str, &str)>, // (package_path, mod_name) — only for fabric
 ) -> Result<()> {
-    // Delete Java source file
-    let java_path = dir.join(format!(
-        "{module}/src/main/java/{source_package_path}/{source_class_name}.java"
-    ));
-    if java_path.exists() {
-        std::fs::remove_file(&java_path)?;
-        // Try to clean up empty java directories (but keep mixin package-info.java)
-        cleanup_empty_dirs(&dir.join(format!("{module}/src/main/java/{source_package_path}")))?;
+    let mod_id = vars.get("mod_id").unwrap();
+    let package_path = vars.get("package_path").unwrap();
+
+    // fabric.mod.json in unified resources
+    write_file(
+        &dir.join("src/main/resources/fabric.mod.json"),
+        &render(template::SC_FABRIC_MOD_JSON, vars)?,
+    )?;
+
+    // mixins.json (shared)
+    let mixins_path = dir.join(format!("src/main/resources/{mod_id}.mixins.json"));
+    if !mixins_path.exists() {
+        write_file(
+            &mixins_path,
+            &render(template::TMPL_FABRIC_MIXINS_JSON, vars)?,
+        )?;
     }
 
-    // Create Kotlin source file
-    let kt_path = dir.join(format!(
-        "{module}/src/main/kotlin/{source_package_path}/{source_class_name}.kt"
+    // mixin package-info.java
+    let mixin_info_path = dir.join(format!(
+        "src/main/java/{package_path}/mixin/package-info.java"
     ));
-    write_file(&kt_path, &render(kt_template, vars)?)?;
-
-    // If this is fabric, ensure mixin package-info.java stays in java tree
-    if let Some((pkg_path, _)) = mixin_info {
-        let mixin_java_path = dir.join(format!(
-            "{module}/src/main/java/{pkg_path}/mixin/package-info.java"
-        ));
-        if !mixin_java_path.exists() {
-            write_file(
-                &mixin_java_path,
-                &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars)?,
-            )?;
-        }
+    if !mixin_info_path.exists() {
+        write_file(
+            &mixin_info_path,
+            &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars)?,
+        )?;
     }
 
-    println!(
-        "{}",
-        format!("  Migrated {module}/ to Kotlin").green()
-    );
+    Ok(())
+}
+
+/// Create neoforge resource metadata files (used by both init and add).
+pub fn add_neoforge_files(
+    dir: &Path,
+    vars: &HashMap<String, String>,
+) -> Result<()> {
+    let mod_id = vars.get("mod_id").unwrap();
+    let package_path = vars.get("package_path").unwrap();
+
+    // neoforge.mods.toml in unified resources
+    write_file(
+        &dir.join("src/main/resources/META-INF/neoforge.mods.toml"),
+        &render(template::SC_NEOFORGE_MODS_TOML, vars)?,
+    )?;
+
+    // mixins.json (shared) — create if not present
+    let mixins_path = dir.join(format!("src/main/resources/{mod_id}.mixins.json"));
+    if !mixins_path.exists() {
+        write_file(
+            &mixins_path,
+            &render(template::TMPL_FABRIC_MIXINS_JSON, vars)?,
+        )?;
+    }
+
+    // mixin package-info.java — create if not present
+    let mixin_info_path = dir.join(format!(
+        "src/main/java/{package_path}/mixin/package-info.java"
+    ));
+    if !mixin_info_path.exists() {
+        write_file(
+            &mixin_info_path,
+            &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars)?,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Create CI files (used by both init and add).
+pub fn add_ci_files(dir: &Path, vars: &HashMap<String, String>) -> Result<()> {
+    write_file(
+        &dir.join(".github/workflows/build.yml"),
+        &render(template::TMPL_CI_BUILD_YML, vars)?,
+    )?;
+    Ok(())
+}
+
+/// Regenerate the unified source file after adding/removing a loader.
+fn regenerate_unified_source(dir: &Path, config: &McmodConfig) -> Result<()> {
+    let vars = template::build_common_vars(config);
+    let package_path = package_to_path(&config.mod_info.package);
+    let class_name = derive_class_name(&config.mod_info.mod_id);
+
+    let (tmpl, ext, source_dir) = if config.mod_info.language == "kotlin" {
+        (template::SC_UNIFIED_MOD_KT, "kt", "kotlin")
+    } else {
+        (template::SC_UNIFIED_MOD_JAVA, "java", "java")
+    };
+
+    let source_path = dir.join(format!(
+        "src/main/{source_dir}/{package_path}/{class_name}.{ext}"
+    ));
+    write_file(&source_path, &render(tmpl, &vars)?)?;
     Ok(())
 }
 
@@ -440,118 +454,6 @@ fn cleanup_empty_dirs(path: &Path) -> Result<()> {
             break;
         }
     }
-    Ok(())
-}
-
-/// Create fabric module files (used by both init and add).
-pub fn add_fabric_files(
-    dir: &Path,
-    vars: &HashMap<String, String>,
-    language: &str,
-) -> Result<()> {
-    let package_path = vars.get("package_path").unwrap();
-    let class_name = vars.get("class_name").unwrap();
-    let mod_id = vars.get("mod_id").unwrap();
-
-    // fabric/build.gradle.kts
-    write_file(
-        &dir.join("fabric/build.gradle.kts"),
-        template::SC_FABRIC_BUILD_GRADLE,
-    )?;
-
-    // fabric/gradle.properties
-    write_file(
-        &dir.join("fabric/gradle.properties"),
-        template::TMPL_FABRIC_GRADLE_PROPS,
-    )?;
-
-    // Source file
-    let (tmpl, ext, source_dir) = if language == "kotlin" {
-        (template::TMPL_FABRIC_MOD_KT, "kt", "kotlin")
-    } else {
-        (template::TMPL_FABRIC_MOD_JAVA, "java", "java")
-    };
-    write_file(
-        &dir.join(format!(
-            "fabric/src/main/{source_dir}/{package_path}/fabric/{class_name}Fabric.{ext}"
-        )),
-        &render(tmpl, vars)?,
-    )?;
-
-    // fabric.mod.json
-    write_file(
-        &dir.join("fabric/src/main/resources/fabric.mod.json"),
-        &render(template::SC_FABRIC_MOD_JSON, vars)?,
-    )?;
-
-    // mixins.json
-    write_file(
-        &dir.join(format!(
-            "fabric/src/main/resources/{mod_id}.mixins.json"
-        )),
-        &render(template::TMPL_FABRIC_MIXINS_JSON, vars)?,
-    )?;
-
-    // mixin package-info.java (always in java source tree, even for kotlin projects)
-    write_file(
-        &dir.join(format!(
-            "fabric/src/main/java/{package_path}/mixin/package-info.java"
-        )),
-        &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars)?,
-    )?;
-
-    Ok(())
-}
-
-/// Create neoforge module files (used by both init and add).
-pub fn add_neoforge_files(
-    dir: &Path,
-    vars: &HashMap<String, String>,
-    language: &str,
-) -> Result<()> {
-    let package_path = vars.get("package_path").unwrap();
-    let class_name = vars.get("class_name").unwrap();
-
-    // neoforge/build.gradle.kts
-    write_file(
-        &dir.join("neoforge/build.gradle.kts"),
-        template::SC_NEOFORGE_BUILD_GRADLE,
-    )?;
-
-    // neoforge/gradle.properties
-    write_file(
-        &dir.join("neoforge/gradle.properties"),
-        template::TMPL_NEOFORGE_GRADLE_PROPS,
-    )?;
-
-    // Source file
-    let (tmpl, ext, source_dir) = if language == "kotlin" {
-        (template::TMPL_NEOFORGE_MOD_KT, "kt", "kotlin")
-    } else {
-        (template::TMPL_NEOFORGE_MOD_JAVA, "java", "java")
-    };
-    write_file(
-        &dir.join(format!(
-            "neoforge/src/main/{source_dir}/{package_path}/neoforge/{class_name}NeoForge.{ext}"
-        )),
-        &render(tmpl, vars)?,
-    )?;
-
-    // neoforge.mods.toml
-    write_file(
-        &dir.join("neoforge/src/main/resources/META-INF/neoforge.mods.toml"),
-        &render(template::SC_NEOFORGE_MODS_TOML, vars)?,
-    )?;
-
-    Ok(())
-}
-
-/// Create CI files (used by both init and add).
-pub fn add_ci_files(dir: &Path, vars: &HashMap<String, String>) -> Result<()> {
-    write_file(
-        &dir.join(".github/workflows/build.yml"),
-        &render(template::TMPL_CI_BUILD_YML, vars)?,
-    )?;
     Ok(())
 }
 

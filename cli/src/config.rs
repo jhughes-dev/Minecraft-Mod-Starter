@@ -50,12 +50,16 @@ pub struct Publishing {
 ///
 /// `targets` lists each MC version to build against. Each target holds
 /// the per-version dependency versions and the upper bound of its
-/// compatibility range. Shared toolchain versions live at the top level.
+/// compatibility range.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Versions {
     pub targets: Vec<VersionTarget>,
-    pub architectury_plugin: String,
-    pub architectury_loom: String,
+    /// Deprecated: kept for backwards compatibility with old mcmod.toml files.
+    #[serde(default, skip_serializing)]
+    pub architectury_plugin: Option<String>,
+    /// Deprecated: kept for backwards compatibility with old mcmod.toml files.
+    #[serde(default, skip_serializing)]
+    pub architectury_loom: Option<String>,
 }
 
 /// A single Minecraft version target and its per-version dependencies.
@@ -68,32 +72,6 @@ pub struct VersionTarget {
     pub fabric_loader: String,
     pub fabric_api: String,
     pub neoforge: String,
-}
-
-impl VersionTarget {
-    /// Fabric mod.json dependency range: `>=1.21.1 <=1.21.6`
-    pub fn mc_dep_fabric(&self) -> String {
-        if self.minecraft == self.max_minecraft {
-            format!("~{}", self.minecraft)
-        } else {
-            format!(">={} <={}", self.minecraft, self.max_minecraft)
-        }
-    }
-
-    /// NeoForge mods.toml dependency range: `[1.21.1,1.21.6]`
-    pub fn mc_dep_neoforge(&self) -> String {
-        if self.minecraft == self.max_minecraft {
-            format!("[{},)", self.minecraft)
-        } else {
-            format!("[{},{}]", self.minecraft, self.max_minecraft)
-        }
-    }
-
-    /// NeoForge loader dependency range: `[21.1,)` derived from neoforge version.
-    pub fn neoforge_dep(&self) -> String {
-        let major = crate::util::neoforge_major(&self.neoforge);
-        format!("[{major},)")
-    }
 }
 
 impl McmodConfig {
@@ -168,23 +146,44 @@ impl McmodConfig {
         dir.join(CONFIG_FILE)
     }
 
-    /// The first (lowest) target MC version — used as the Stonecutter active version.
-    pub fn active_version(&self) -> &str {
-        self.versions
+    /// The active Stonecutter version string, e.g. "1.21.1-fabric".
+    /// Uses the first target MC version and the first enabled loader.
+    pub fn active_version(&self) -> String {
+        let mc = self.versions
             .targets
             .first()
             .map(|t| t.minecraft.as_str())
-            .unwrap_or("1.21.4")
+            .unwrap_or("1.21.4");
+        let loader = if self.loaders.fabric {
+            "fabric"
+        } else {
+            "neoforge"
+        };
+        format!("{mc}-{loader}")
     }
 
-    /// Stonecutter versions string: `"1.21.1", "1.21.7"`
-    pub fn stonecutter_versions(&self) -> String {
+    /// Generates the Stonecutter 0.8 `mc(...)` version block for settings.gradle.kts.
+    ///
+    /// Example output:
+    /// ```text
+    ///         mc("1.21.1", "fabric", "neoforge")
+    ///         mc("1.21.7", "fabric", "neoforge")
+    /// ```
+    pub fn mc_versions_block(&self) -> String {
+        let mut loaders = Vec::new();
+        if self.loaders.fabric {
+            loaders.push("\"fabric\"");
+        }
+        if self.loaders.neoforge {
+            loaders.push("\"neoforge\"");
+        }
+        let loaders_str = loaders.join(", ");
         self.versions
             .targets
             .iter()
-            .map(|t| format!("\"{}\"", t.minecraft))
+            .map(|t| format!("        mc(\"{}\", {})", t.minecraft, loaders_str))
             .collect::<Vec<_>>()
-            .join(", ")
+            .join("\n")
     }
 }
 
@@ -198,8 +197,8 @@ impl Default for Versions {
                 fabric_api: "0.119.4+1.21.4".to_string(),
                 neoforge: "21.4.157".to_string(),
             }],
-            architectury_plugin: "3.4.162".to_string(),
-            architectury_loom: "1.13.469".to_string(),
+            architectury_plugin: None,
+            architectury_loom: None,
         }
     }
 }
@@ -257,34 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn test_version_target_deps() {
-        let target = VersionTarget {
-            minecraft: "1.21.1".to_string(),
-            max_minecraft: "1.21.6".to_string(),
-            fabric_loader: "0.18.5".to_string(),
-            fabric_api: "0.116.9+1.21.1".to_string(),
-            neoforge: "21.1.221".to_string(),
-        };
-        assert_eq!(target.mc_dep_fabric(), ">=1.21.1 <=1.21.6");
-        assert_eq!(target.mc_dep_neoforge(), "[1.21.1,1.21.6]");
-        assert_eq!(target.neoforge_dep(), "[21.1,)");
-    }
-
-    #[test]
-    fn test_version_target_single_version() {
-        let target = VersionTarget {
-            minecraft: "1.21.4".to_string(),
-            max_minecraft: "1.21.4".to_string(),
-            fabric_loader: "0.18.5".to_string(),
-            fabric_api: "0.119.4+1.21.4".to_string(),
-            neoforge: "21.4.157".to_string(),
-        };
-        assert_eq!(target.mc_dep_fabric(), "~1.21.4");
-        assert_eq!(target.mc_dep_neoforge(), "[1.21.4,)");
-    }
-
-    #[test]
-    fn test_stonecutter_versions_string() {
+    fn test_mc_versions_block() {
         let versions = Versions {
             targets: vec![
                 VersionTarget {
@@ -302,8 +274,8 @@ mod tests {
                     neoforge: "21.7.25-beta".to_string(),
                 },
             ],
-            architectury_plugin: "3.4.162".to_string(),
-            architectury_loom: "1.13.469".to_string(),
+            architectury_plugin: None,
+            architectury_loom: None,
         };
         let config = McmodConfig::new(
             "test".to_string(),
@@ -319,7 +291,9 @@ mod tests {
             None,
             versions,
         );
-        assert_eq!(config.stonecutter_versions(), "\"1.21.1\", \"1.21.7\"");
-        assert_eq!(config.active_version(), "1.21.1");
+        let block = config.mc_versions_block();
+        assert!(block.contains("mc(\"1.21.1\", \"fabric\", \"neoforge\")"));
+        assert!(block.contains("mc(\"1.21.7\", \"fabric\", \"neoforge\")"));
+        assert_eq!(config.active_version(), "1.21.1-fabric");
     }
 }

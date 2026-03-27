@@ -1,67 +1,29 @@
 use crate::error::Result;
 use std::path::Path;
 
-/// Add an `include("<module>")` line to settings.gradle.
-/// Inserts it after the last existing `include(...)` line but before `rootProject.name`.
-pub fn add_include_to_settings(dir: &Path, module: &str) -> Result<()> {
-    let path = dir.join("settings.gradle");
+/// Add a loader to existing mc() calls in settings.gradle.kts.
+///
+/// Looks for lines matching `mc("X.Y.Z", ...)` and adds the loader argument
+/// if not already present. For example, adding "neoforge" to
+/// `mc("1.21.1", "fabric")` produces `mc("1.21.1", "fabric", "neoforge")`.
+pub fn add_loader_to_settings_kts(dir: &Path, loader: &str) -> Result<()> {
+    let path = dir.join("settings.gradle.kts");
     let content = std::fs::read_to_string(&path)?;
-    let include_line = format!("include(\"{}\")", module);
-
-    // Don't add if already present
-    if content.contains(&include_line) {
-        return Ok(());
-    }
-
-    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
-
-    // Find the last include(...) line
-    let mut last_include_idx = None;
-    for (i, line) in lines.iter().enumerate() {
-        if line.trim().starts_with("include(") {
-            last_include_idx = Some(i);
-        }
-    }
-
-    if let Some(idx) = last_include_idx {
-        lines.insert(idx + 1, include_line);
-    } else {
-        // No include lines found; insert before rootProject.name
-        let rp_idx = lines
-            .iter()
-            .position(|l| l.trim().starts_with("rootProject.name"))
-            .unwrap_or(lines.len());
-        lines.insert(rp_idx, include_line);
-    }
-
-    let result = lines.join("\n");
-    // Preserve trailing newline if original had one
-    let result = if content.ends_with('\n') && !result.ends_with('\n') {
-        result + "\n"
-    } else {
-        result
-    };
-    std::fs::write(&path, result)?;
-    Ok(())
-}
-
-/// Update the `enabled_platforms` value in gradle.properties to include a new platform.
-pub fn add_platform_to_gradle_properties(dir: &Path, platform: &str) -> Result<()> {
-    let path = dir.join("gradle.properties");
-    let content = std::fs::read_to_string(&path)?;
+    let loader_arg = format!("\"{}\"", loader);
 
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
 
     for line in &mut lines {
-        if line.starts_with("enabled_platforms=") {
-            let current = line.trim_start_matches("enabled_platforms=");
-            let platforms: Vec<&str> = current.split(',').map(|s| s.trim()).collect();
-            if !platforms.contains(&platform) {
-                let mut new_platforms: Vec<&str> = platforms;
-                new_platforms.push(platform);
-                *line = format!("enabled_platforms={}", new_platforms.join(","));
+        let trimmed = line.trim();
+        if trimmed.starts_with("mc(\"") && trimmed.ends_with(')') {
+            // Check if loader already present
+            if line.contains(&loader_arg) {
+                continue;
             }
-            break;
+            // Insert the loader before the closing paren
+            if let Some(pos) = line.rfind(')') {
+                line.insert_str(pos, &format!(", {loader_arg}"));
+            }
         }
     }
 
@@ -121,36 +83,34 @@ mod tests {
     }
 
     #[test]
-    fn test_add_include_to_settings_after_existing() {
-        let dir = temp_dir("include_after");
+    fn test_add_loader_to_settings_kts() {
+        let dir = temp_dir("add_loader");
         fs::write(
-            dir.join("settings.gradle"),
-            "include(\"common\")\nrootProject.name = \"mymod\"\n",
+            dir.join("settings.gradle.kts"),
+            "        mc(\"1.21.1\", \"fabric\")\n        mc(\"1.21.7\", \"fabric\")\n",
         )
         .unwrap();
 
-        add_include_to_settings(&dir, "fabric").unwrap();
-        let result = fs::read_to_string(dir.join("settings.gradle")).unwrap();
-        assert!(result.contains("include(\"fabric\")"));
-        let common_pos = result.find("include(\"common\")").unwrap();
-        let fabric_pos = result.find("include(\"fabric\")").unwrap();
-        assert!(fabric_pos > common_pos);
+        add_loader_to_settings_kts(&dir, "neoforge").unwrap();
+        let result = fs::read_to_string(dir.join("settings.gradle.kts")).unwrap();
+        assert!(result.contains("mc(\"1.21.1\", \"fabric\", \"neoforge\")"));
+        assert!(result.contains("mc(\"1.21.7\", \"fabric\", \"neoforge\")"));
 
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn test_add_include_to_settings_idempotent() {
-        let dir = temp_dir("include_idem");
+    fn test_add_loader_to_settings_kts_idempotent() {
+        let dir = temp_dir("add_loader_idem");
         fs::write(
-            dir.join("settings.gradle"),
-            "include(\"common\")\ninclude(\"fabric\")\nrootProject.name = \"mymod\"\n",
+            dir.join("settings.gradle.kts"),
+            "        mc(\"1.21.1\", \"fabric\", \"neoforge\")\n",
         )
         .unwrap();
 
-        add_include_to_settings(&dir, "fabric").unwrap();
-        let result = fs::read_to_string(dir.join("settings.gradle")).unwrap();
-        assert_eq!(result.matches("include(\"fabric\")").count(), 1);
+        add_loader_to_settings_kts(&dir, "neoforge").unwrap();
+        let result = fs::read_to_string(dir.join("settings.gradle.kts")).unwrap();
+        assert_eq!(result.matches("\"neoforge\"").count(), 1);
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -197,22 +157,6 @@ mod tests {
         set_gradle_property(&dir, "new_key", "new_value").unwrap();
         let result = fs::read_to_string(dir.join("gradle.properties")).unwrap();
         assert!(result.contains("new_key=new_value"));
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn test_add_platform_to_gradle_properties() {
-        let dir = temp_dir("add_platform");
-        fs::write(
-            dir.join("gradle.properties"),
-            "enabled_platforms=fabric\n",
-        )
-        .unwrap();
-
-        add_platform_to_gradle_properties(&dir, "neoforge").unwrap();
-        let result = fs::read_to_string(dir.join("gradle.properties")).unwrap();
-        assert!(result.contains("enabled_platforms=fabric,neoforge"));
 
         let _ = fs::remove_dir_all(&dir);
     }

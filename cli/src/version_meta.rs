@@ -1,9 +1,9 @@
 /// Per-Minecraft-version metadata for all upstream dependency versions.
 ///
-/// Each entry pins known-good versions of Fabric Loader, Fabric API, NeoForge,
-/// and the Architectury toolchain for a specific Minecraft release.
-/// When the CLI targets a particular MC version (via `--minecraft` or interactive
-/// prompt), this table provides the offline defaults and guides online fetching.
+/// Each entry pins known-good versions of Fabric Loader, Fabric API, and NeoForge
+/// for a specific Minecraft release. When the CLI targets a particular MC version
+/// (via `--minecraft` or interactive prompt), this table provides the offline
+/// defaults and guides online fetching.
 
 /// Dependency versions for a specific Minecraft release.
 #[derive(Debug, Clone)]
@@ -12,8 +12,6 @@ pub struct VersionMeta {
     pub fabric_loader: &'static str,
     pub fabric_api: &'static str,
     pub neoforge: &'static str,
-    pub architectury_plugin: &'static str,
-    pub architectury_loom: &'static str,
 }
 
 /// All supported Minecraft versions and their known-good dependency versions.
@@ -31,8 +29,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.116.9+1.21.1",
         neoforge: "21.1.221",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.7.428",
+
     },
     // --- 1.21.2 ---
     // NeoForge only has beta releases for this MC version.
@@ -41,8 +38,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.106.1+1.21.2",
         neoforge: "21.2.1-beta",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.9.436",
+
     },
     // --- 1.21.3 ---
     VersionMeta {
@@ -50,8 +46,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.114.1+1.21.3",
         neoforge: "21.3.96",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.9.436",
+
     },
     // --- 1.21.4 ---
     VersionMeta {
@@ -59,8 +54,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.119.4+1.21.4",
         neoforge: "21.4.157",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.13.469",
+
     },
     // --- 1.21.5 ---
     VersionMeta {
@@ -68,8 +62,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.128.2+1.21.5",
         neoforge: "21.5.97",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.13.469",
+
     },
     // --- 1.21.6 ---
     // NeoForge only has beta releases for this MC version.
@@ -78,8 +71,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.128.2+1.21.6",
         neoforge: "21.6.20-beta",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.13.469",
+
     },
     // --- 1.21.7 ---
     // NeoForge only has beta releases for this MC version.
@@ -88,8 +80,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.128.2+1.21.7",
         neoforge: "21.7.25-beta",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.13.469",
+
     },
     // --- 1.21.8 ---
     VersionMeta {
@@ -97,8 +88,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.136.1+1.21.8",
         neoforge: "21.8.53",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.13.469",
+
     },
     // --- 1.21.9 ---
     // NeoForge only has beta releases for this MC version.
@@ -107,8 +97,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.134.1+1.21.9",
         neoforge: "21.9.16-beta",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.13.469",
+
     },
     // --- 1.21.10 ---
     VersionMeta {
@@ -116,8 +105,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.138.4+1.21.10",
         neoforge: "21.10.64",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.13.469",
+
     },
     // --- 1.21.11 ---
     // NeoForge only has beta releases for this MC version.
@@ -126,8 +114,7 @@ pub const VERSION_TABLE: &[VersionMeta] = &[
         fabric_loader: "0.18.5",
         fabric_api: "0.141.3+1.21.11",
         neoforge: "21.11.40-beta",
-        architectury_plugin: "3.4.162",
-        architectury_loom: "1.13.469",
+
     },
 ];
 
@@ -185,34 +172,6 @@ pub fn targets_to_ranges(targets: &[&str]) -> Vec<crate::config::VersionTarget> 
     result
 }
 
-/// Compare version strings numerically (e.g. "1.13.469" > "1.7.428").
-fn version_sort_key(v: &str) -> Vec<u64> {
-    v.split('.')
-        .filter_map(|part| part.parse::<u64>().ok())
-        .collect()
-}
-
-/// Pick the highest architectury_loom version from the given targets.
-/// Falls back to the latest entry in VERSION_TABLE if no targets match.
-pub fn best_loom_version(targets: &[&str]) -> &'static str {
-    targets
-        .iter()
-        .filter_map(|t| get_version_meta(t))
-        .max_by_key(|m| version_sort_key(m.architectury_loom))
-        .map(|m| m.architectury_loom)
-        .unwrap_or(VERSION_TABLE.last().unwrap().architectury_loom)
-}
-
-/// Pick the highest architectury_plugin version from the given targets.
-pub fn best_plugin_version(targets: &[&str]) -> &'static str {
-    targets
-        .iter()
-        .filter_map(|t| get_version_meta(t))
-        .max_by_key(|m| version_sort_key(m.architectury_plugin))
-        .map(|m| m.architectury_plugin)
-        .unwrap_or(VERSION_TABLE.last().unwrap().architectury_plugin)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,7 +187,6 @@ mod tests {
     fn test_lookup_current_default() {
         let meta = get_version_meta("1.21.4").unwrap();
         assert_eq!(meta.fabric_api, "0.119.4+1.21.4");
-        assert_eq!(meta.architectury_plugin, "3.4.162");
     }
 
     #[test]
@@ -298,12 +256,6 @@ mod tests {
         assert_eq!(ranges[0].max_minecraft, "1.21.3");
         assert_eq!(ranges[1].max_minecraft, "1.21.7");
         assert_eq!(ranges[2].max_minecraft, "1.21.11");
-    }
-
-    #[test]
-    fn test_best_loom_version() {
-        assert_eq!(best_loom_version(&["1.21.1", "1.21.7"]), "1.13.469");
-        assert_eq!(best_loom_version(&["1.21.1"]), "1.7.428");
     }
 
     #[test]

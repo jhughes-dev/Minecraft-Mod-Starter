@@ -2,30 +2,16 @@ use crate::config::{McmodConfig, VersionTarget};
 use crate::error::{McmodError, Result};
 use std::collections::HashMap;
 
-// --- Legacy templates (still used by source file generation & add command) ---
+// --- Shared templates ---
 pub const TMPL_GITIGNORE: &str = include_str!("../templates/gitignore");
 pub const TMPL_LICENSE: &str = include_str!("../templates/LICENSE");
 
-pub const TMPL_COMMON_MOD_JAVA: &str = include_str!("../templates/common/CommonMod.java");
-pub const TMPL_COMMON_MOD_KT: &str = include_str!("../templates/common/CommonMod.kt");
-
-pub const TMPL_FABRIC_MOD_JAVA: &str = include_str!("../templates/fabric/FabricMod.java");
-pub const TMPL_FABRIC_MOD_KT: &str = include_str!("../templates/fabric/FabricMod.kt");
 pub const TMPL_FABRIC_MIXINS_JSON: &str = include_str!("../templates/fabric/mixins.json");
 pub const TMPL_FABRIC_MIXIN_PACKAGE_INFO: &str =
     include_str!("../templates/fabric/mixin_package_info.java");
 
-pub const TMPL_NEOFORGE_MOD_JAVA: &str = include_str!("../templates/neoforge/NeoForgeMod.java");
-pub const TMPL_NEOFORGE_MOD_KT: &str = include_str!("../templates/neoforge/NeoForgeMod.kt");
-
 pub const TMPL_COMMON_TEST_JAVA: &str = include_str!("../templates/common/ExampleModTest.java");
 pub const TMPL_COMMON_TEST_KT: &str = include_str!("../templates/common/ExampleModTest.kt");
-pub const TMPL_FABRIC_GAMETEST_JAVA: &str = include_str!("../templates/fabric/FabricGameTest.java");
-pub const TMPL_FABRIC_GAMETEST_KT: &str = include_str!("../templates/fabric/FabricGameTest.kt");
-pub const TMPL_NEOFORGE_GAMETEST_JAVA: &str =
-    include_str!("../templates/neoforge/NeoForgeGameTest.java");
-pub const TMPL_NEOFORGE_GAMETEST_KT: &str =
-    include_str!("../templates/neoforge/NeoForgeGameTest.kt");
 
 pub const TMPL_CI_BUILD_YML: &str = include_str!("../templates/ci/build.yml");
 pub const TMPL_CI_RELEASE_YML: &str = include_str!("../templates/ci/release.yml");
@@ -41,19 +27,14 @@ pub const SC_GRADLE_PROPERTIES: &str =
     include_str!("../templates/stonecutter/gradle.properties");
 pub const SC_VERSION_GRADLE_PROPERTIES: &str =
     include_str!("../templates/stonecutter/version.gradle.properties");
-pub const SC_FABRIC_BUILD_GRADLE: &str =
-    include_str!("../templates/stonecutter/fabric/build.gradle.kts");
 pub const SC_FABRIC_MOD_JSON: &str =
     include_str!("../templates/stonecutter/fabric/fabric.mod.json");
-pub const SC_NEOFORGE_BUILD_GRADLE: &str =
-    include_str!("../templates/stonecutter/neoforge/build.gradle.kts");
 pub const SC_NEOFORGE_MODS_TOML: &str =
     include_str!("../templates/stonecutter/neoforge/neoforge.mods.toml");
-
-// Fabric/NeoForge platform gradle.properties (unchanged — just sets loom.platform)
-pub const TMPL_FABRIC_GRADLE_PROPS: &str = include_str!("../templates/fabric/gradle.properties");
-pub const TMPL_NEOFORGE_GRADLE_PROPS: &str =
-    include_str!("../templates/neoforge/gradle.properties");
+pub const SC_UNIFIED_MOD_JAVA: &str =
+    include_str!("../templates/stonecutter/UnifiedMod.java");
+pub const SC_UNIFIED_MOD_KT: &str =
+    include_str!("../templates/stonecutter/UnifiedMod.kt");
 
 // --- Binary templates (include_bytes!) ---
 pub const GRADLE_WRAPPER_JAR: &[u8] =
@@ -127,20 +108,12 @@ pub fn build_common_vars(config: &McmodConfig) -> HashMap<String, String> {
 
     // Stonecutter-specific
     vars.insert(
-        "stonecutter_versions".to_string(),
-        config.stonecutter_versions(),
+        "mc_versions_block".to_string(),
+        config.mc_versions_block(),
     );
     vars.insert(
         "active_version".to_string(),
-        config.active_version().to_string(),
-    );
-    vars.insert(
-        "architectury_plugin_version".to_string(),
-        config.versions.architectury_plugin.clone(),
-    );
-    vars.insert(
-        "architectury_loom_version".to_string(),
-        config.versions.architectury_loom.clone(),
+        config.active_version(),
     );
 
     if let Some(ref pub_config) = config.publishing {
@@ -153,21 +126,22 @@ pub fn build_common_vars(config: &McmodConfig) -> HashMap<String, String> {
 }
 
 /// Build per-version template variables for a specific VersionTarget.
-/// Used to render the per-version gradle.properties.
+/// Used to render the per-version properties file.
 pub fn build_version_vars(target: &VersionTarget) -> HashMap<String, String> {
     let mut vars = HashMap::new();
     vars.insert(
-        "fabric_loader_version".to_string(),
+        "minecraft_version".to_string(),
+        target.minecraft.clone(),
+    );
+    vars.insert(
+        "loader_version".to_string(),
         target.fabric_loader.clone(),
     );
     vars.insert(
-        "fabric_api_version".to_string(),
+        "fabric_version".to_string(),
         target.fabric_api.clone(),
     );
     vars.insert("neoforge_version".to_string(), target.neoforge.clone());
-    vars.insert("mc_dep_fabric".to_string(), target.mc_dep_fabric());
-    vars.insert("mc_dep_neoforge".to_string(), target.mc_dep_neoforge());
-    vars.insert("neoforge_dep".to_string(), target.neoforge_dep());
     vars
 }
 

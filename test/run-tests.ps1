@@ -79,8 +79,9 @@ function Run-TestForLanguage($lang) {
             --package com.example.testmod --author TestAuthor `
             --description "A test mod" --language $lang `
             --loader fabric --loader neoforge `
+            --minecraft 1.21.1 `
             --ci $ciFlag --server false --publishing false `
-            --testing false --offline
+            --testing false
         if ($LASTEXITCODE -ne 0) { throw "mcmod init failed" }
 
         $fail = $false
@@ -88,42 +89,51 @@ function Run-TestForLanguage($lang) {
         # --- Verify gradle.properties ---
         Write-Host "`n  Checking gradle.properties..." -ForegroundColor Yellow
         $props = Get-Content "$tempDir\gradle.properties" -Raw
-        @('archives_base_name=testmod', 'maven_group=com.example.testmod', 'mod_name=Test Mod') | ForEach-Object {
+        @('mod.id=testmod', 'mod.group=com.example.testmod', 'mod.name=Test Mod') | ForEach-Object {
             if ($props -notmatch [regex]::Escape($_)) {
                 Write-Host "  FAIL: gradle.properties missing '$_'" -ForegroundColor Red
                 $fail = $true
             }
         }
 
-        # --- Verify Fabric API enabled ---
-        Write-Host "  Checking Fabric API enabled..." -ForegroundColor Yellow
-        $fbg = Get-Content "$tempDir\fabric\build.gradle" -Raw
-        if ($fbg -notmatch 'modApi "net.fabricmc.fabric-api:fabric-api') {
-            Write-Host "  FAIL: Fabric API not enabled" -ForegroundColor Red
+        # --- Verify Stonecraft build.gradle.kts ---
+        Write-Host "  Checking build.gradle.kts..." -ForegroundColor Yellow
+        $bgk = Get-Content "$tempDir\build.gradle.kts" -Raw
+        if ($bgk -notmatch 'gg\.meza\.stonecraft') {
+            Write-Host "  FAIL: Stonecraft plugin not found in build.gradle.kts" -ForegroundColor Red
             $fail = $true
         }
 
-        # --- Verify Kotlin-specific ---
-        if ($lang -eq "kotlin") {
-            Write-Host "  Checking Kotlin-specific settings..." -ForegroundColor Yellow
-            if ($props -notmatch '(?m)^mod_language=kotlin') {
-                Write-Host "  FAIL: mod_language=kotlin not set" -ForegroundColor Red
-                $fail = $true
-            }
-            if ($props -notmatch '(?m)^kotlin_version=') {
-                Write-Host "  FAIL: kotlin_version not set" -ForegroundColor Red
-                $fail = $true
-            }
-            if (Test-Path "$tempDir\common\src\main\java\com\example\testmod\TestmodMod.java") {
-                Write-Host "  FAIL: Java source should not exist for kotlin" -ForegroundColor Red
-                $fail = $true
-            }
+        # --- Verify settings uses Stonecutter 0.8 ---
+        Write-Host "  Checking settings.gradle.kts..." -ForegroundColor Yellow
+        $settings = Get-Content "$tempDir\settings.gradle.kts" -Raw
+        if ($settings -notmatch 'stonecutter.*0\.8') {
+            Write-Host "  FAIL: Stonecutter 0.8 not found in settings.gradle.kts" -ForegroundColor Red
+            $fail = $true
+        }
+
+        # --- Verify unified source (no fabric/ or neoforge/ dirs) ---
+        Write-Host "  Checking unified source layout..." -ForegroundColor Yellow
+        if (Test-Path "$tempDir\fabric") {
+            Write-Host "  FAIL: fabric/ directory should not exist" -ForegroundColor Red
+            $fail = $true
+        }
+        if (Test-Path "$tempDir\neoforge") {
+            Write-Host "  FAIL: neoforge/ directory should not exist" -ForegroundColor Red
+            $fail = $true
         }
 
         # --- Verify assets ---
         Write-Host "  Checking assets..." -ForegroundColor Yellow
-        if (-not (Test-Path "$tempDir\common\src\main\resources\assets\testmod")) {
+        if (-not (Test-Path "$tempDir\src\main\resources\assets\testmod")) {
             Write-Host "  FAIL: Assets directory not found" -ForegroundColor Red
+            $fail = $true
+        }
+
+        # --- Verify version properties ---
+        Write-Host "  Checking version properties..." -ForegroundColor Yellow
+        if (-not (Test-Path "$tempDir\versions\dependencies\1.21.1.properties")) {
+            Write-Host "  FAIL: Version properties not found" -ForegroundColor Red
             $fail = $true
         }
 
@@ -141,50 +151,40 @@ function Run-TestForLanguage($lang) {
             }
         }
 
-        # --- Normalize versions ---
-        Write-Host "  Normalizing versions..." -ForegroundColor Yellow
-        & "$RepoRoot\test\normalize-versions.ps1" -File "$tempDir\fabric\src\main\resources\fabric.mod.json"
-        & "$RepoRoot\test\normalize-versions.ps1" -File "$tempDir\neoforge\src\main\resources\META-INF\neoforge.mods.toml"
-
         # --- Golden file diffs ---
         Write-Host "`n  Diffing against golden files..." -ForegroundColor Yellow
         $golden = Join-Path $RepoRoot "test\golden\$lang"
 
+        $goldenPairs = @()
         if ($lang -eq "java") {
-            if (-not (Compare-Golden "$tempDir\common\src\main\java\com\example\testmod\TestmodMod.java" `
-                "$golden\common\src\main\java\com\example\testmod\TestmodMod.java")) { $fail = $true }
-            if (-not (Compare-Golden "$tempDir\fabric\src\main\java\com\example\testmod\fabric\TestmodModFabric.java" `
-                "$golden\fabric\src\main\java\com\example\testmod\fabric\TestmodModFabric.java")) { $fail = $true }
-            if (-not (Compare-Golden "$tempDir\fabric\src\main\java\com\example\testmod\mixin\package-info.java" `
-                "$golden\fabric\src\main\java\com\example\testmod\mixin\package-info.java")) { $fail = $true }
-            if (-not (Compare-Golden "$tempDir\neoforge\src\main\java\com\example\testmod\neoforge\TestmodModNeoForge.java" `
-                "$golden\neoforge\src\main\java\com\example\testmod\neoforge\TestmodModNeoForge.java")) { $fail = $true }
+            $goldenPairs += @(
+                @("src\main\java\com\example\testmod\TestmodMod.java"),
+                @("src\main\java\com\example\testmod\mixin\package-info.java")
+            )
         } else {
-            if (-not (Compare-Golden "$tempDir\common\src\main\kotlin\com\example\testmod\TestmodMod.kt" `
-                "$golden\common\src\main\kotlin\com\example\testmod\TestmodMod.kt")) { $fail = $true }
-            if (-not (Compare-Golden "$tempDir\fabric\src\main\kotlin\com\example\testmod\fabric\TestmodModFabric.kt" `
-                "$golden\fabric\src\main\kotlin\com\example\testmod\fabric\TestmodModFabric.kt")) { $fail = $true }
-            if (-not (Compare-Golden "$tempDir\fabric\src\main\java\com\example\testmod\mixin\package-info.java" `
-                "$golden\fabric\src\main\java\com\example\testmod\mixin\package-info.java")) { $fail = $true }
-            if (-not (Compare-Golden "$tempDir\neoforge\src\main\kotlin\com\example\testmod\neoforge\TestmodModNeoForge.kt" `
-                "$golden\neoforge\src\main\kotlin\com\example\testmod\neoforge\TestmodModNeoForge.kt")) { $fail = $true }
+            $goldenPairs += @(
+                @("src\main\kotlin\com\example\testmod\TestmodMod.kt"),
+                @("src\main\java\com\example\testmod\mixin\package-info.java")
+            )
         }
+        $goldenPairs += @(
+            @("src\main\resources\fabric.mod.json"),
+            @("src\main\resources\testmod.mixins.json"),
+            @("src\main\resources\META-INF\neoforge.mods.toml"),
+            @("settings.gradle.kts")
+        )
 
-        if (-not (Compare-Golden "$tempDir\fabric\src\main\resources\fabric.mod.json" `
-            "$golden\fabric\src\main\resources\fabric.mod.json")) { $fail = $true }
-        if (-not (Compare-Golden "$tempDir\fabric\src\main\resources\testmod.mixins.json" `
-            "$golden\fabric\src\main\resources\testmod.mixins.json")) { $fail = $true }
-        if (-not (Compare-Golden "$tempDir\neoforge\src\main\resources\META-INF\neoforge.mods.toml" `
-            "$golden\neoforge\src\main\resources\META-INF\neoforge.mods.toml")) { $fail = $true }
-        if (-not (Compare-Golden "$tempDir\settings.gradle" `
-            "$golden\settings.gradle")) { $fail = $true }
+        foreach ($relPath in $goldenPairs) {
+            $r = Compare-Golden "$tempDir\$relPath" "$golden\$relPath"
+            if ($r -eq $false) { $fail = $true }
+        }
 
         # --- CI-specific golden file: build.yml ---
         if ($TestCI) {
             Write-Host "`n  Diffing CI-specific golden files..." -ForegroundColor Yellow
             $ciGolden = Join-Path $RepoRoot "test\golden\ci"
-            if (-not (Compare-Golden "$tempDir\.github\workflows\build.yml" `
-                "$ciGolden\build.yml")) { $fail = $true }
+            $r = Compare-Golden "$tempDir\.github\workflows\build.yml" "$ciGolden\build.yml"
+            if ($r -eq $false) { $fail = $true }
         }
 
         if ($fail) {

@@ -4,18 +4,18 @@
   "version": "${version}",
   "name": "${name}",
   "description": "${description}",
-  "authors": ["{{author}}"],
+  "authors": ["TestAuthor"],
   "contact": {
-    "homepage": "https://github.com/yourname/{{mod_id}}",
-    "sources": "https://github.com/yourname/{{mod_id}}"
+    "homepage": "https://github.com/yourname/testmod",
+    "sources": "https://github.com/yourname/testmod"
   },
   "license": "MIT",
-  "icon": "assets/{{mod_id}}/icon.png",
+  "icon": "assets/testmod/icon.png",
   "environment": "*",
   "entrypoints": {
-    "main": ["${group}.{{class_name}}"]
+    "main": ["${group}.TestmodMod"]
   },
-  "mixins": ["{{mod_id}}.mixins.json"],
+  "mixins": ["testmod.mixins.json"],
   "depends": {
     "fabricloader": "*",
     "minecraft": ">=${minecraftVersion}",

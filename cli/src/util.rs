@@ -60,17 +60,6 @@ pub fn derive_class_name(mod_id: &str) -> String {
     format!("{}Mod", to_pascal_case(mod_id))
 }
 
-/// Extracts the NeoForge major version from a full version string.
-/// e.g. "21.4.156" -> "21.4"
-pub fn neoforge_major(version: &str) -> String {
-    let parts: Vec<&str> = version.splitn(3, '.').collect();
-    if parts.len() >= 2 {
-        format!("{}.{}", parts[0], parts[1])
-    } else {
-        version.to_string()
-    }
-}
-
 /// Ensures a directory exists, creating it if necessary.
 pub fn ensure_dir(path: &Path) -> Result<()> {
     if !path.exists() {
@@ -185,10 +174,4 @@ mod tests {
         assert_eq!(derive_class_name("cool_stuff"), "CoolStuffMod");
     }
 
-    #[test]
-    fn test_neoforge_major() {
-        assert_eq!(neoforge_major("21.4.156"), "21.4");
-        assert_eq!(neoforge_major("21.4"), "21.4");
-        assert_eq!(neoforge_major("21"), "21");
-    }
 }

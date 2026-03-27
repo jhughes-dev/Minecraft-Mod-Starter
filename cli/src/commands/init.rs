@@ -314,8 +314,8 @@ pub fn run(opts: InitOptions) -> Result<()> {
     // Build Versions config
     let versions = Versions {
         targets: version_targets,
-        architectury_plugin: version_meta::best_plugin_version(&target_refs).to_string(),
-        architectury_loom: version_meta::best_loom_version(&target_refs).to_string(),
+        architectury_plugin: None,
+        architectury_loom: None,
     };
 
     let has_fabric = loaders.iter().any(|l| l == "fabric");
@@ -364,30 +364,23 @@ pub fn run(opts: InitOptions) -> Result<()> {
     // Write Stonecutter project files
     write_stonecutter_files(project_dir, &config, &vars)?;
 
-    // Write common source (root src/)
-    write_common_source(project_dir, &vars, &language)?;
+    // Write unified source (root src/) with preprocessor directives
+    write_unified_source(project_dir, &vars, &language)?;
 
-    // Write loader modules
-    if has_fabric {
-        write_fabric_module(project_dir, &vars, &language)?;
-        println!("{}", "  Created fabric/ module".green());
-    }
-    if has_neoforge {
-        write_neoforge_module(project_dir, &vars, &language)?;
-        println!("{}", "  Created neoforge/ module".green());
-    }
+    // Write resource metadata files into src/main/resources/
+    write_resource_metadata(project_dir, &vars, has_fabric, has_neoforge)?;
 
-    // Per-version gradle.properties
+    // Per-version properties files
     for target in &config.versions.targets {
         let ver_vars = template::build_version_vars(target);
         let content = render(template::SC_VERSION_GRADLE_PROPERTIES, &ver_vars)?;
         write_file(
-            &project_dir.join(format!("versions/{}/gradle.properties", target.minecraft)),
+            &project_dir.join(format!("versions/dependencies/{}.properties", target.minecraft)),
             &content,
         )?;
         println!(
             "{}",
-            format!("  Created versions/{}/gradle.properties", target.minecraft).green()
+            format!("  Created versions/dependencies/{}.properties", target.minecraft).green()
         );
     }
 
@@ -400,8 +393,8 @@ pub fn run(opts: InitOptions) -> Result<()> {
         ),
     }
 
-    // Write dev-defaults data pack using the active (first) version
-    let active_mc = config.active_version();
+    // Write dev-defaults data pack using the first target MC version
+    let active_mc = config.versions.targets.first().map(|t| t.minecraft.as_str()).unwrap_or("1.21.4");
     match crate::pack_format::write_dev_datapack(project_dir, &global, active_mc) {
         Ok(()) => println!(
             "{}",
@@ -547,8 +540,8 @@ fn write_stonecutter_files(
     Ok(())
 }
 
-/// Write shared source files into root `src/` (the Stonecutter "common" project).
-fn write_common_source(
+/// Write the unified mod source file with Stonecutter preprocessor directives.
+fn write_unified_source(
     dir: &Path,
     vars: &HashMap<String, String>,
     language: &str,
@@ -558,9 +551,9 @@ fn write_common_source(
     let mod_id = vars.get("mod_id").unwrap();
 
     let (template, ext, source_dir) = if language == "kotlin" {
-        (template::TMPL_COMMON_MOD_KT, "kt", "kotlin")
+        (template::SC_UNIFIED_MOD_KT, "kt", "kotlin")
     } else {
-        (template::TMPL_COMMON_MOD_JAVA, "java", "java")
+        (template::SC_UNIFIED_MOD_JAVA, "java", "java")
     };
 
     let source_path = dir.join(format!(
@@ -576,108 +569,50 @@ fn write_common_source(
         "Replace this file with your mod icon (icon.png)\n",
     )?;
 
-    println!("{}", "  Created common source in src/".green());
+    println!("{}", "  Created unified source in src/".green());
     Ok(())
 }
 
-fn write_fabric_module(
+/// Write resource metadata files (fabric.mod.json, neoforge.mods.toml, mixins.json)
+/// into the unified src/main/resources/ directory.
+fn write_resource_metadata(
     dir: &Path,
     vars: &HashMap<String, String>,
-    language: &str,
+    has_fabric: bool,
+    has_neoforge: bool,
 ) -> Result<()> {
     let package_path = vars.get("package_path").unwrap();
-    let class_name = vars.get("class_name").unwrap();
     let mod_id = vars.get("mod_id").unwrap();
 
-    // fabric/build.gradle.kts
-    write_file(
-        &dir.join("fabric/build.gradle.kts"),
-        template::SC_FABRIC_BUILD_GRADLE,
-    )?;
+    if has_fabric {
+        write_file(
+            &dir.join("src/main/resources/fabric.mod.json"),
+            &render(template::SC_FABRIC_MOD_JSON, vars)?,
+        )?;
+    }
 
-    // fabric/gradle.properties (just loom.platform)
-    write_file(
-        &dir.join("fabric/gradle.properties"),
-        template::TMPL_FABRIC_GRADLE_PROPS,
-    )?;
+    if has_neoforge {
+        write_file(
+            &dir.join("src/main/resources/META-INF/neoforge.mods.toml"),
+            &render(template::SC_NEOFORGE_MODS_TOML, vars)?,
+        )?;
+    }
 
-    // fabric.mod.json — has both {{}} CLI placeholders and ${} Gradle expand tokens
+    // Shared mixins JSON
     write_file(
-        &dir.join("fabric/src/main/resources/fabric.mod.json"),
-        &render(template::SC_FABRIC_MOD_JSON, vars)?,
-    )?;
-
-    // Mixins JSON
-    write_file(
-        &dir.join(format!("fabric/src/main/resources/{mod_id}.mixins.json")),
+        &dir.join(format!("src/main/resources/{mod_id}.mixins.json")),
         &render(template::TMPL_FABRIC_MIXINS_JSON, vars)?,
     )?;
 
-    // Mixin package-info.java
+    // Mixin package-info.java (always in java source tree, even for kotlin)
     write_file(
         &dir.join(format!(
-            "fabric/src/main/java/{package_path}/mixin/package-info.java"
+            "src/main/java/{package_path}/mixin/package-info.java"
         )),
         &render(template::TMPL_FABRIC_MIXIN_PACKAGE_INFO, vars)?,
     )?;
 
-    // Entry point source file
-    let (tmpl, ext, src_dir) = if language == "kotlin" {
-        (template::TMPL_FABRIC_MOD_KT, "kt", "kotlin")
-    } else {
-        (template::TMPL_FABRIC_MOD_JAVA, "java", "java")
-    };
-
-    write_file(
-        &dir.join(format!(
-            "fabric/src/main/{src_dir}/{package_path}/fabric/{class_name}Fabric.{ext}"
-        )),
-        &render(tmpl, vars)?,
-    )?;
-
-    Ok(())
-}
-
-fn write_neoforge_module(
-    dir: &Path,
-    vars: &HashMap<String, String>,
-    language: &str,
-) -> Result<()> {
-    let package_path = vars.get("package_path").unwrap();
-    let class_name = vars.get("class_name").unwrap();
-
-    // neoforge/build.gradle.kts
-    write_file(
-        &dir.join("neoforge/build.gradle.kts"),
-        template::SC_NEOFORGE_BUILD_GRADLE,
-    )?;
-
-    // neoforge/gradle.properties (just loom.platform)
-    write_file(
-        &dir.join("neoforge/gradle.properties"),
-        template::TMPL_NEOFORGE_GRADLE_PROPS,
-    )?;
-
-    // neoforge.mods.toml — has both {{}} CLI placeholders and ${} Gradle expand tokens
-    write_file(
-        &dir.join("neoforge/src/main/resources/META-INF/neoforge.mods.toml"),
-        &render(template::SC_NEOFORGE_MODS_TOML, vars)?,
-    )?;
-
-    // Entry point source file
-    let (tmpl, ext, src_dir) = if language == "kotlin" {
-        (template::TMPL_NEOFORGE_MOD_KT, "kt", "kotlin")
-    } else {
-        (template::TMPL_NEOFORGE_MOD_JAVA, "java", "java")
-    };
-
-    write_file(
-        &dir.join(format!(
-            "neoforge/src/main/{src_dir}/{package_path}/neoforge/{class_name}NeoForge.{ext}"
-        )),
-        &render(tmpl, vars)?,
-    )?;
-
+    println!("{}", "  Created resource metadata".green());
     Ok(())
 }
 
