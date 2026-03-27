@@ -4,20 +4,17 @@ plugins {
     id("com.github.johnrengelman.shadow")
 }
 
-val mod = object {
-    val id = property("mod.id").toString()
-    val version = property("mod.version").toString()
-    val group = property("mod.group").toString()
-    fun dep(key: String) = property("deps.$key").toString()
-}
+val modId = property("mod.id").toString()
+val modVersion = property("mod.version").toString()
+val modGroup = property("mod.group").toString()
 
 val minecraft = stonecutter.current.version
 
-version = "${mod.version}+$minecraft"
-group = mod.group
+version = "$modVersion+$minecraft"
+group = modGroup
 
 base {
-    archivesName.set("${mod.id}-neoforge")
+    archivesName.set("$modId-neoforge")
 }
 
 architectury {
@@ -36,7 +33,8 @@ repositories {
     maven("https://maven.neoforged.net/releases/")
 }
 
-val common = stonecutter.node.sibling("")
+val common = stonecutter.node.sibling("")!!
+fun dep(key: String) = common.project.property("deps.$key").toString()
 
 configurations {
     register("common") {
@@ -57,7 +55,7 @@ dependencies {
     minecraft("com.mojang:minecraft:$minecraft")
     mappings(loom.officialMojangMappings())
 
-    "neoForge"("net.neoforged:neoforge:${mod.dep("neoforge")}")
+    "neoForge"("net.neoforged:neoforge:${dep("neoforge")}")
 
     "common"(project(path = common.project.path, configuration = "namedElements")) { isTransitive = false }
     "shadowBundle"(project(path = common.project.path, configuration = "transformProductionNeoForge"))
@@ -77,8 +75,8 @@ tasks.withType<JavaCompile>().configureEach {
 tasks.processResources {
     val props = mapOf(
         "version" to project.version,
-        "mc_dep" to mod.dep("mc_dep_neoforge"),
-        "neoforge_dep" to mod.dep("neoforge_dep"),
+        "mc_dep" to dep("mc_dep_neoforge"),
+        "neoforge_dep" to dep("neoforge_dep"),
     )
     inputs.properties(props)
     filesMatching("META-INF/neoforge.mods.toml") { expand(props) }
@@ -96,7 +94,7 @@ tasks.remapJar {
     archiveClassifier.set(null as String?)
 }
 
-tasks.sourcesJar {
+tasks.named<Jar>("sourcesJar") {
     val commonSources = project(common.project.path).tasks.named<Jar>("sourcesJar")
     dependsOn(commonSources)
     from(commonSources.map { it.archiveFile }.map { zipTree(it) })
@@ -110,6 +108,6 @@ components.named<AdhocComponentWithVariants>("java") {
 val buildAndCollect by tasks.registering(Copy::class) {
     group = "build"
     from(tasks.remapJar.get().archiveFile)
-    into(rootProject.layout.buildDirectory.file("libs/${mod.version}/neoforge"))
+    into(rootProject.layout.buildDirectory.file("libs/$modVersion/neoforge"))
     dependsOn("build")
 }

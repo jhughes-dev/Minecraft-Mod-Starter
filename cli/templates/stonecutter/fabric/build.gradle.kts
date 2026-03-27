@@ -4,20 +4,17 @@ plugins {
     id("com.github.johnrengelman.shadow")
 }
 
-val mod = object {
-    val id = property("mod.id").toString()
-    val version = property("mod.version").toString()
-    val group = property("mod.group").toString()
-    fun dep(key: String) = property("deps.$key").toString()
-}
+val modId = property("mod.id").toString()
+val modVersion = property("mod.version").toString()
+val modGroup = property("mod.group").toString()
 
 val minecraft = stonecutter.current.version
 
-version = "${mod.version}+$minecraft"
-group = mod.group
+version = "$modVersion+$minecraft"
+group = modGroup
 
 base {
-    archivesName.set("${mod.id}-fabric")
+    archivesName.set("$modId-fabric")
 }
 
 architectury {
@@ -36,7 +33,8 @@ repositories {
     maven("https://maven.fabricmc.net/")
 }
 
-val common = stonecutter.node.sibling("")
+val common = stonecutter.node.sibling("")!!
+fun dep(key: String) = common.project.property("deps.$key").toString()
 
 configurations {
     register("common")
@@ -50,8 +48,8 @@ dependencies {
     minecraft("com.mojang:minecraft:$minecraft")
     mappings(loom.officialMojangMappings())
 
-    modImplementation("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
-    modApi("net.fabricmc.fabric-api:fabric-api:${mod.dep("fabric_api")}")
+    modImplementation("net.fabricmc:fabric-loader:${dep("fabric_loader")}")
+    modApi("net.fabricmc.fabric-api:fabric-api:${dep("fabric_api")}")
 
     "common"(project(path = common.project.path, configuration = "namedElements")) { isTransitive = false }
     "shadowCommon"(project(path = common.project.path, configuration = "transformProductionFabric")) { isTransitive = false }
@@ -71,8 +69,8 @@ tasks.withType<JavaCompile>().configureEach {
 tasks.processResources {
     val props = mapOf(
         "version" to project.version,
-        "fabric_loader" to mod.dep("fabric_loader"),
-        "mc_dep" to mod.dep("mc_dep_fabric"),
+        "fabric_loader" to dep("fabric_loader"),
+        "mc_dep" to dep("mc_dep_fabric"),
     )
     inputs.properties(props)
     filesMatching("fabric.mod.json") { expand(props) }
@@ -90,7 +88,7 @@ tasks.remapJar {
     archiveClassifier.set(null as String?)
 }
 
-tasks.sourcesJar {
+tasks.named<Jar>("sourcesJar") {
     val commonSources = project(common.project.path).tasks.named<Jar>("sourcesJar")
     dependsOn(commonSources)
     from(commonSources.map { it.archiveFile }.map { zipTree(it) })
@@ -104,6 +102,6 @@ components.named<AdhocComponentWithVariants>("java") {
 val buildAndCollect by tasks.registering(Copy::class) {
     group = "build"
     from(tasks.remapJar.get().archiveFile)
-    into(rootProject.layout.buildDirectory.file("libs/${mod.version}/fabric"))
+    into(rootProject.layout.buildDirectory.file("libs/$modVersion/fabric"))
     dependsOn("build")
 }

@@ -8,26 +8,24 @@ plugins {
 {{/kotlin}}
 }
 
-val mod = object {
-    val id = property("mod.id").toString()
-    val name = property("mod.name").toString()
-    val version = property("mod.version").toString()
-    val group = property("mod.group").toString()
-    fun dep(key: String) = property("deps.$key").toString()
-}
+val modId = property("mod.id").toString()
+val modName = property("mod.name").toString()
+val modVersion = property("mod.version").toString()
+val modGroup = property("mod.group").toString()
+fun dep(key: String) = property("deps.$key").toString()
 
 val minecraft = stonecutter.current.version
 
-version = "${mod.version}+$minecraft"
-group = mod.group
+version = "$modVersion+$minecraft"
+group = modGroup
 
 base {
-    archivesName.set("${mod.id}-common")
+    archivesName.set("$modId-common")
 }
 
 architectury.common(stonecutter.tree.branches.mapNotNull {
     if (stonecutter.current.project !in it) null
-    else it.project.prop("loom.platform")
+    else it.id.takeIf { id -> id.isNotEmpty() }
 })
 
 loom {
@@ -45,7 +43,7 @@ repositories {
 dependencies {
     minecraft("com.mojang:minecraft:$minecraft")
     mappings(loom.officialMojangMappings())
-    modImplementation("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
+    modImplementation("net.fabricmc:fabric-loader:${dep("fabric_loader")}")
 }
 
 java {
@@ -65,10 +63,10 @@ kotlin {
 }
 
 {{/kotlin}}
-// Collect built JARs into build/libs/{mod.version}/{loader}
+// Collect built JARs into build/libs/{modVersion}/{loader}
 val buildAndCollect by tasks.registering(Copy::class) {
     group = "build"
     from(tasks.remapJar.get().archiveFile)
-    into(rootProject.layout.buildDirectory.file("libs/${mod.version}/${stonecutter.current.branch}"))
+    into(rootProject.layout.buildDirectory.file("libs/$modVersion/${stonecutter.branch.id}"))
     dependsOn("build")
 }
