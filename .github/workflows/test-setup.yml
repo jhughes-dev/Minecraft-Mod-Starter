@@ -43,7 +43,7 @@ jobs:
             --loader fabric --loader neoforge \
             --minecraft 1.21.4 \
             --ci false --server false --publishing false \
-            --testing false --offline
+            --testing false
 
       - name: Verify gradle.properties
         run: |
@@ -56,10 +56,15 @@ jobs:
           test -f /tmp/testmod/stonecutter.gradle.kts
           test -f /tmp/testmod/settings.gradle.kts
           test -f /tmp/testmod/build.gradle.kts
-          test -f /tmp/testmod/versions/1.21.4/gradle.properties
+          test -f /tmp/testmod/versions/dependencies/1.21.4.properties
 
-      - name: Verify Fabric build file
-        run: test -f /tmp/testmod/fabric/build.gradle.kts
+      - name: Verify Stonecraft in build.gradle.kts
+        run: grep -q 'gg.meza.stonecraft' /tmp/testmod/build.gradle.kts
+
+      - name: Verify no fabric/ or neoforge/ subdirectories
+        run: |
+          test ! -d /tmp/testmod/fabric
+          test ! -d /tmp/testmod/neoforge
 
       - name: Verify Kotlin-specific settings
         if: matrix.language == 'kotlin'
@@ -67,7 +72,7 @@ jobs:
           grep -q 'kotlin("jvm")' /tmp/testmod/build.gradle.kts
           test ! -f "/tmp/testmod/src/main/java/com/example/testmod/TestmodMod.java"
 
-      - name: Verify common source in root src/
+      - name: Verify unified source in root src/
         run: |
           if [ "${{ matrix.language }}" = "kotlin" ]; then
             test -f "/tmp/testmod/src/main/kotlin/com/example/testmod/TestmodMod.kt"
@@ -75,19 +80,20 @@ jobs:
             test -f "/tmp/testmod/src/main/java/com/example/testmod/TestmodMod.java"
           fi
 
-      - name: Verify assets renamed
+      - name: Verify assets exist
         run: test -d "/tmp/testmod/src/main/resources/assets/testmod"
 
-      - name: Verify mod metadata exists
+      - name: Verify mod metadata in unified src/main/resources/
         run: |
-          test -f /tmp/testmod/fabric/src/main/resources/fabric.mod.json
-          test -f /tmp/testmod/neoforge/src/main/resources/META-INF/neoforge.mods.toml
+          test -f /tmp/testmod/src/main/resources/fabric.mod.json
+          test -f /tmp/testmod/src/main/resources/META-INF/neoforge.mods.toml
+          test -f /tmp/testmod/src/main/resources/testmod.mixins.json
 
       - name: Verify per-version deps
         run: |
-          grep -q 'deps.fabric_api=' /tmp/testmod/versions/1.21.4/gradle.properties
-          grep -q 'deps.neoforge=' /tmp/testmod/versions/1.21.4/gradle.properties
-          grep -q 'deps.mc_dep_fabric=' /tmp/testmod/versions/1.21.4/gradle.properties
+          grep -q 'fabric_version=' /tmp/testmod/versions/dependencies/1.21.4.properties
+          grep -q 'neoforge_version=' /tmp/testmod/versions/dependencies/1.21.4.properties
+          grep -q 'minecraft_version=1.21.4' /tmp/testmod/versions/dependencies/1.21.4.properties
 
       - name: Verify no .github dir (CI disabled)
         run: test ! -d /tmp/testmod/.github
@@ -117,7 +123,7 @@ jobs:
             --loader fabric --loader neoforge \
             --minecraft 1.21.4 \
             --ci true --server false --publishing false \
-            --testing false --offline
+            --testing false
 
       - name: Verify build.yml exists
         run: test -f /tmp/testmod/.github/workflows/build.yml
@@ -128,14 +134,12 @@ jobs:
           grep -q 'mod.group=com.example.testmod' /tmp/testmod/gradle.properties
           grep -q 'mod.name=Test Mod' /tmp/testmod/gradle.properties
 
-      - name: Verify Stonecutter files exist
+      - name: Verify Stonecraft setup
         run: |
           test -f /tmp/testmod/stonecutter.gradle.kts
           test -f /tmp/testmod/settings.gradle.kts
           test -f /tmp/testmod/build.gradle.kts
-
-      - name: Verify Fabric build file
-        run: test -f /tmp/testmod/fabric/build.gradle.kts
+          grep -q 'gg.meza.stonecraft' /tmp/testmod/build.gradle.kts
 
       - name: Verify Kotlin-specific settings
         if: matrix.language == 'kotlin'
@@ -143,7 +147,7 @@ jobs:
           grep -q 'kotlin("jvm")' /tmp/testmod/build.gradle.kts
           test ! -f "/tmp/testmod/src/main/java/com/example/testmod/TestmodMod.java"
 
-      - name: Verify common source in root src/
+      - name: Verify unified source in root src/
         run: |
           if [ "${{ matrix.language }}" = "kotlin" ]; then
             test -f "/tmp/testmod/src/main/kotlin/com/example/testmod/TestmodMod.kt"
@@ -172,22 +176,23 @@ jobs:
             --loader fabric --loader neoforge \
             --minecraft 1.21.1 --minecraft 1.21.7 \
             --ci false --server false --publishing false \
-            --testing false --offline
+            --testing false
 
-      - name: Verify version directories
+      - name: Verify version properties files
         run: |
-          test -f /tmp/testmod/versions/1.21.1/gradle.properties
-          test -f /tmp/testmod/versions/1.21.7/gradle.properties
+          test -f /tmp/testmod/versions/dependencies/1.21.1.properties
+          test -f /tmp/testmod/versions/dependencies/1.21.7.properties
 
-      - name: Verify version ranges
+      - name: Verify version properties content
         run: |
-          grep -q 'deps.mc_dep_fabric=>=1.21.1 <=1.21.6' /tmp/testmod/versions/1.21.1/gradle.properties
-          grep -q 'deps.mc_dep_fabric=>=1.21.7 <=1.21.11' /tmp/testmod/versions/1.21.7/gradle.properties
+          grep -q 'minecraft_version=1.21.1' /tmp/testmod/versions/dependencies/1.21.1.properties
+          grep -q 'minecraft_version=1.21.7' /tmp/testmod/versions/dependencies/1.21.7.properties
 
-      - name: Verify Stonecutter versions in settings
+      - name: Verify Stonecutter mc() calls in settings
         run: |
-          grep -q '"1.21.1", "1.21.7"' /tmp/testmod/settings.gradle.kts
+          grep -q 'mc("1.21.1"' /tmp/testmod/settings.gradle.kts
+          grep -q 'mc("1.21.7"' /tmp/testmod/settings.gradle.kts
 
-      - name: Verify active version
+      - name: Verify active version includes loader suffix
         run: |
-          grep -q 'stonecutter active "1.21.1"' /tmp/testmod/stonecutter.gradle.kts
+          grep -q 'stonecutter active "1.21.1-fabric"' /tmp/testmod/stonecutter.gradle.kts
